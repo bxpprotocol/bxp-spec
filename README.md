@@ -261,6 +261,8 @@ You may not use this work except in compliance with the License.
 
 http://www.apache.org/licenses/LICENSE-2.0
 
+[![BXP on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1090206&theme=dark)](https://www.producthunt.com/products/bxp-breathe-exposure-protocol)
+
 ---
 
 *The air is public. The data should be too.*
