@@ -1,0 +1,57 @@
+{
+  "bxpVersion": "2.0",
+  "deviceUuid": "3059a977-388d-4664-8868-0f47524157c5",
+  "geohash": "ttnfucj",
+  "latitude": 28.6139,
+  "longitude": 77.209,
+  "timestampUs": 1772913481737483,
+  "durationS": 60,
+  "indoorOutdoor": "outdoor",
+  "agents": [
+    {
+      "agentId": "PM2_5",
+      "value": 156.3,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "PM10",
+      "value": 228.4,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "NO2",
+      "value": 67.8,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "O3",
+      "value": 5.1,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "TEMP",
+      "value": 22.0,
+      "unit": "C"
+    },
+    {
+      "agentId": "RH",
+      "value": 45.0,
+      "unit": "%"
+    }
+  ],
+  "context": {
+    "location": "Delhi, India",
+    "country": "IN",
+    "nearbySource": "vehicles_crop_burning"
+  },
+  "quality": {
+    "flag": "UNVALIDATED",
+    "confidence": 0.8,
+    "qcMethod": "client-generated"
+  },
+  "bxpHri": 65.61,
+  "bxpHriLevel": "HIGH",
+  "bxpHriColor": "#CC0000",
+  "generatedAt": "2026-03-07T19:58:01.737546+00:00",
+  "payloadHash": "sha256:0eeaa72b4e9dbe54088e4a2e704434177f1dfbc4bfbc0284abecaf54a24d9d9b"
+}

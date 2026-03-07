@@ -1,0 +1,61 @@
+{
+  "bxpVersion": "2.0",
+  "deviceUuid": "7749f71f-6041-45fa-b3e5-1251834cb25b",
+  "geohash": "ecpbmbq",
+  "latitude": 5.6711,
+  "longitude": -0.0894,
+  "timestampUs": 1772908648120081,
+  "durationS": 60,
+  "indoorOutdoor": "outdoor",
+  "agents": [
+    {
+      "agentId": "PM2_5",
+      "value": 83.2,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "PM10",
+      "value": 112.4,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "NO2",
+      "value": 51.7,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "CO",
+      "value": 3.1,
+      "unit": "ppm"
+    },
+    {
+      "agentId": "SO2",
+      "value": 28.4,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "TEMP",
+      "value": 32.1,
+      "unit": "C"
+    },
+    {
+      "agentId": "RH",
+      "value": 69.0,
+      "unit": "%"
+    }
+  ],
+  "context": {
+    "location": "Ashaiman",
+    "nearbySource": "industrial_zone"
+  },
+  "quality": {
+    "flag": "UNVALIDATED",
+    "confidence": 0.8,
+    "qcMethod": "client-generated"
+  },
+  "bxpHri": 76.3,
+  "bxpHriLevel": "VERY_HIGH",
+  "bxpHriColor": "#9B0000",
+  "generatedAt": "2026-03-07T18:37:28.120122+00:00",
+  "payloadHash": "sha256:d125188d6612412c72f231125cd094bf2402becae73657e71a99ab222a5322e9"
+}

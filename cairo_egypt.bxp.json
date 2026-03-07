@@ -1,0 +1,57 @@
+{
+  "bxpVersion": "2.0",
+  "deviceUuid": "405e5bb0-ab8a-4fce-b803-a7e25adb852e",
+  "geohash": "stq4yv3",
+  "latitude": 30.0444,
+  "longitude": 31.2357,
+  "timestampUs": 1772913481738660,
+  "durationS": 60,
+  "indoorOutdoor": "outdoor",
+  "agents": [
+    {
+      "agentId": "PM2_5",
+      "value": 93.4,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "PM10",
+      "value": 187.3,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "NO2",
+      "value": 49.2,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "O3",
+      "value": 7.8,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "TEMP",
+      "value": 28.0,
+      "unit": "C"
+    },
+    {
+      "agentId": "RH",
+      "value": 35.0,
+      "unit": "%"
+    }
+  ],
+  "context": {
+    "location": "Cairo, Egypt",
+    "country": "EG",
+    "nearbySource": "desert_dust_traffic"
+  },
+  "quality": {
+    "flag": "UNVALIDATED",
+    "confidence": 0.8,
+    "qcMethod": "client-generated"
+  },
+  "bxpHri": 65.94,
+  "bxpHriLevel": "HIGH",
+  "bxpHriColor": "#CC0000",
+  "generatedAt": "2026-03-07T19:58:01.738717+00:00",
+  "payloadHash": "sha256:ffc62f5fa629d80c0ae9924fefa7c78d380a00e4a74ae9f1d6a40d5f5315f075"
+}

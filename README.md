@@ -1,267 +1,246 @@
 # BXP — Breathe Exposure Protocol
 
-> The universal open standard for atmospheric exposure data.
-> No hardware required. Runs on any device. Free forever.
+**The open universal standard for atmospheric exposure data.**
 
-**Author:** Elvarin
-**First Published:** February 15, 2026
-**Current Version:** 2.0 (Active Development)
-**License:** Apache 2.0
-**Status:** Open Standard — Accepting Contributors
+BXP is to air quality data what MP4 is to video — a universal file format
+and protocol that any system can read, write, and exchange.
+Owned by nobody. Usable by everyone. Free forever.
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![BXP Version](https://img.shields.io/badge/BXP-v2.0-green.svg)](spec/bxp-v2.0.md)
+[![GitHub](https://img.shields.io/badge/GitHub-bxpprotocol-black.svg)](https://github.com/bxpprotocol/bxp-spec)
 
 ---
 
 ## What is BXP?
 
-BXP is a pure software protocol standard — like HTTP, PDF, or MP3.
+Air pollution causes **7 million premature deaths annually**.
+The sensors exist. The data infrastructure does not.
 
-It defines a universal file system architecture and data format for
-the capture, storage, transmission, and interpretation of atmospheric
-exposure data. No sensors required. No hardware required. No
-centralized infrastructure required. Runs on any phone, any device,
-any platform, anywhere in the world.
+BXP defines a complete open standard for atmospheric exposure data:
 
-BXP unifies data from government monitoring stations, satellites,
-existing sensor applications, and community reports into one open,
-portable, verifiable standard format.
-
-**BXP is to breath exposure data what HTTP is to the web.**
+- **`.bxp` file format** — universal JSON-based data container
+- **BXP_HRI** — composite Health Risk Index (WHO-derived, 0-100 scale)
+- **REST API** — standard endpoints any system can implement
+- **31 atmospheric agents** — PM2.5, NO2, ozone, benzene, mold, and more
+- **Federated network** — decentralized, no single owner, data sovereignty preserved
+- **Privacy framework** — personal exposure data protected by design
 
 ---
 
-## The Problem
+## Repository Structure
 
-Air pollution kills 7 million people every year. That is more than
-HIV, malaria, and tuberculosis combined.
-
-The technology to measure, track, and respond to air pollution
-exists. Sensors are cheap. Connectivity is near-universal. Data
-processing capacity is abundant.
-
-And yet the global response remains fragmented, uncoordinated,
-and ineffective — not because the tools do not exist, but because
-the data infrastructure does not.
-
-Today's air quality ecosystem has four critical failures:
-
-- **Fragmentation** — every device, app, and agency stores data
-  in a different incompatible format
-- **Proprietary lock-in** — major platforms maintain closed
-  ecosystems with expensive licensing
-- **Geographic inequality** — monitoring infrastructure concentrated
-  in wealthy nations; the populations most affected have the least data
-- **No universal standard** — unlike HTTP for web data or DICOM for
-  medical imaging, no open standard exists for air exposure data
-
-A sensor in Accra cannot speak to a hospital in Nairobi.
-A citizen reading in Delhi cannot contribute to a government map.
-A researcher in London cannot access ground-truth data from Lagos.
-
-BXP eliminates this fragmentation permanently.
-
----
-
-## The Solution
-
-BXP defines:
-
-- A hierarchical file system architecture for organizing all
-  air exposure data (the BXP volume)
-- A structured, versioned file format (.bxp) for encoding
-  individual exposure records
-- A complete schema for every major pollutant, biological agent,
-  and environmental variable
-- A five-stage protocol: Locate → Detect → Interpret → Protect → Report
-- An open REST API specification for reading, writing, and
-  querying BXP data
-- A security and privacy framework for protecting individual
-  exposure records
-- A governance model for maintaining and evolving the standard
-
----
-
-## Why Software-Only Changes Everything
-
-HTTP did not require you to build networking hardware.
-PDF did not require you to build printers.
-MP3 did not require you to build speakers.
-SSL did not require you to build servers.
-
-BXP does not require you to build sensors.
-
-Any existing data source can write BXP-formatted data:
-- Government air quality monitoring stations
-- Satellite atmospheric data feeds
-- Existing consumer sensor applications
-- Phone-native sensors (temperature, humidity, pressure, camera)
-- Community human observation reports
-- Hospital and health system environmental records
-
-BXP is the format layer. Everything else plugs into it.
-
----
-
-## File System Architecture
 ```
-BXP:/
-├── /meta/           — volume metadata, index, checksums
-├── /locations/      — geographic hierarchy using geohash
-├── /agents/         — pollutant and biological agent definitions
-├── /exposures/      — individual and aggregate exposure records
-├── /devices/        — device registry and calibration data
-├── /alerts/         — alert events and notifications
-├── /community/      — community-submitted observations
-├── /research/       — research-grade datasets
-└── /system/         — system files, schema versions, audit logs
+bxp-protocol/
+├── spec/
+│   └── bxp-v2.0.md              Protocol specification
+├── reference-server/
+│   ├── server.py                 FastAPI reference server
+│   └── requirements.txt
+├── cli/
+│   └── bxp_cli.py               Command line tool
+├── sdk/
+│   └── python/
+│       └── bxp_sdk.py           Python SDK
+├── datasets/
+│   └── sample_readings.bxp.json 10 Accra readings
+├── examples/
+│   ├── example_generate.py      Generate .bxp files
+│   └── example_read.py          Read and analyze .bxp files
+├── docs/
+│   ├── protocol_overview.md
+│   ├── api_documentation.md
+│   └── developer_guide.md
+├── README.md
+└── LICENSE
 ```
 
 ---
 
-## The Five Protocol Stages
+## Quick Start
 
-**Stage 1 — LOCATE**
-Every BXP record is geographically contextualized using the
-Geohash coordinate system. Minimum precision 5 (~5km cell).
-Recommended precision 7 (~153m cell) for fixed sources.
+### Install dependencies
 
-**Stage 2 — DETECT**
-Data enters BXP from any source — existing sensors, satellites,
-government stations, phone-native sensors, or human observation.
-No proprietary hardware required.
+```bash
+cd reference-server
+pip install -r requirements.txt
+```
 
-**Stage 3 — INTERPRET**
-Raw data is normalized, quality-controlled, and translated into
-the BXP canonical format with standardized units and WHO-aligned
-health risk thresholds.
+### Start the server
 
-**Stage 4 — PROTECT**
-BXP translates technical measurements into clear, standardized
-risk levels — CLEAN through HAZARDOUS — with specific protective
-actions for each level.
+```bash
+python server.py
+```
 
-**Stage 5 — REPORT**
-Individual observations contribute to collective intelligence.
-One person's data point. One million people's data — a complete
-map of the invisible.
+Server starts at **http://localhost:8000**
+Interactive API docs: **http://localhost:8000/docs**
+
+The server loads 10 sample Accra readings automatically.
 
 ---
 
-## Agent Coverage
+## Using the CLI
 
-BXP v2.0 covers 30+ atmospheric agents including:
+```bash
+# Generate a .bxp file
+python cli/bxp_cli.py generate --pm25 47.2 --lat 5.6037 --lon -0.1870
 
-- Particulates: PM1, PM2.5, PM10, Black Carbon
-- Gases: CO, CO2, NO2, NO, SO2, O3, H2S, NH3
-- Volatile Organics: TVOC, Benzene, Formaldehyde, Toluene
-- Biological: Mold Spores, Pollen, Bacteria, Dust Mite Allergen
-- Heavy Metals: Lead, Mercury, Arsenic
-- Environmental: Temperature, Humidity, Pressure, UV Index
-- Derived Indices: US AQI, BXP Health Risk Index (BXP_HRI)
+# Generate with full details
+python cli/bxp_cli.py generate \
+    --pm25 47.2 --pm10 62.1 --no2 18.3 --o3 12.0 \
+    --temp 29 --rh 78 \
+    --lat 5.6037 --lon -0.1870 \
+    --location "Accra Central"
 
----
+# Read a .bxp file
+python cli/bxp_cli.py read reading_20260307_100000.bxp.json
 
-## BXP Health Risk Index
+# Validate a .bxp file
+python cli/bxp_cli.py validate reading_20260307_100000.bxp.json
 
-BXP_HRI is BXP's native composite health risk score (0–100).
-Unlike single-pollutant indices, it incorporates all available
-agents with WHO-derived weighting, exposure duration, and
-population vulnerability modifiers.
+# Calculate BXP_HRI
+python cli/bxp_cli.py hri --pm25 67.0 --no2 31.0
 
-| BXP Level  | BXP_HRI | Action Required                          |
-|------------|---------|------------------------------------------|
-| CLEAN      | 0–20    | No restrictions                          |
-| MODERATE   | 21–40   | Sensitive groups monitor                 |
-| ELEVATED   | 41–60   | Reduce heavy outdoor exertion            |
-| HIGH       | 61–75   | N95 outdoors. Close windows.             |
-| VERY HIGH  | 76–90   | Avoid outdoors. Air purifier indoors.    |
-| HAZARDOUS  | 91–100  | Emergency level. Stay indoors.           |
+# Check server status
+python cli/bxp_cli.py server-status --server http://localhost:8000
+```
 
 ---
 
-## Security & Privacy
+## Example API Calls
 
-- Personal exposure records encrypted with AES-256-GCM by default
-- Person identifiers stored as SHA-256 hashes only — never plain text
-- All data in transit via TLS 1.3 minimum
-- Ed25519 cryptographic signatures for data integrity
-- Complete data deletion via single API call
-- k-anonymized aggregates (minimum k=5 sources)
-- Designed for GDPR and CCPA compliance from the ground up
+```bash
+# Submit a reading
+curl -X POST http://localhost:8000/bxp/v2/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "readings": [{
+      "latitude": 5.6037,
+      "longitude": -0.1870,
+      "agents": [
+        {"agentId": "PM2_5", "value": 47.2, "unit": "ug/m3"},
+        {"agentId": "NO2",   "value": 18.3, "unit": "ppb"}
+      ]
+    }]
+  }'
 
----
+# Get latest reading for Accra
+curl http://localhost:8000/bxp/v2/locations/s1v0g/latest
 
-## Compatibility
+# Get all readings
+curl http://localhost:8000/bxp/v2/readings
 
-BXP is designed for compatibility with:
+# Calculate HRI
+curl -X POST "http://localhost:8000/bxp/v2/hri/calculate" \
+  -H "Content-Type: application/json" \
+  -d '[{"agentId": "PM2_5", "value": 67.0, "unit": "ug/m3"}]'
 
-- US EPA Air Quality Index (AQI)
-- WHO Air Quality Guidelines 2021
-- HL7 FHIR (Patient exposure resources)
-- OGC SensorThings API
-- OpenAQ open data platform
-- Schema.org / JSON-LD vocabulary
-
----
-
-## Roadmap
-
-| Version | Target      | Key Deliverables                                    |
-|---------|-------------|-----------------------------------------------------|
-| v1.0    | Feb 2026    | Original spec + Python implementation (FROZEN)      |
-| v2.0    | Mar 2026    | Full file system + API + privacy framework           |
-| v2.1    | Q2 2026     | SDKs: Python, JavaScript, Arduino, ESP32, mobile    |
-| v3.0    | 2027        | Waterborne + soil extension, AI exposure forecasting|
+# Server health
+curl http://localhost:8000/bxp/v2/health
+```
 
 ---
 
-## Full Specification
+## Example Output
 
-The complete BXP Technical Specification v2.0 is available in
-[SPEC.md](SPEC.md).
+### CLI generate
 
-It covers the full file system architecture, binary file format,
-complete agent schema with WHO thresholds, REST API specification,
-device integration standard, security framework, governance model,
-and implementation guide.
+```
+  BXP file generated: reading_20260307_100000.bxp.json
+────────────────────────────────────────────────────
+  Geohash:    s1v0gx4
+  Location:   5.6037, -0.1870
+  Agents:     2
+    PM2_5: 47.2 ug/m3  ↑ EXCEEDS WHO (15)
+    NO2:   18.3 ppb     ✓ within WHO (25)
+
+────────────────────────────────────────────────────
+  BXP Health Risk Index  61.2  [HIGH]
+  Wear N95 outdoors. Close windows.
+────────────────────────────────────────────────────
+```
+
+### Sample .bxp.json file
+
+```json
+{
+  "bxpVersion": "2.0",
+  "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+  "geohash": "s1v0gx4",
+  "latitude": 5.6037,
+  "longitude": -0.1870,
+  "timestampUs": 1741342800000000,
+  "durationS": 60,
+  "indoorOutdoor": "outdoor",
+  "agents": [
+    { "agentId": "PM2_5", "value": 47.2, "unit": "ug/m3" },
+    { "agentId": "NO2",   "value": 18.3, "unit": "ppb"   }
+  ],
+  "quality": {
+    "flag": "UNVALIDATED",
+    "confidence": 0.8,
+    "qcMethod": "client-generated"
+  },
+  "bxpHri": 61.2,
+  "bxpHriLevel": "HIGH",
+  "bxpHriColor": "#CC0000",
+  "payloadHash": "sha256:a3f2b1..."
+}
+```
 
 ---
 
-## Contributing
+## Python SDK
 
-BXP is an open standard governed by the BXP Foundation.
+```python
+from bxp_sdk import write_bxp, read_bxp, calculate_risk, BXPClient
 
-All contributions are welcome — specification improvements,
-reference implementations, SDK development, documentation,
-and translations.
+# Calculate risk
+risk = calculate_risk(pm25=67.0, no2=31.0)
+print(risk["score"])   # 72.4
+print(risk["level"])   # HIGH
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-Open an issue to start a discussion.
+# Write a file
+write_bxp("reading.bxp.json", {
+    "latitude": 5.6037, "longitude": -0.1870,
+    "pm25": 47.2, "no2": 18.3
+})
+
+# Submit to server
+client = BXPClient("http://localhost:8000")
+result = client.submit(latitude=5.6037, longitude=-0.1870, pm25=47.2)
+print(result["bxpHri"])   # 61.2
+```
 
 ---
 
-## Origin
+## Run the Examples
 
-BXP was conceived and first implemented by Elvarin on
-February 15, 2026. The original v1 specification and working
-Python implementation established the core concepts:
-user-owned data, offline-first architecture, SHA-256
-verification, and the portable .bxp container format.
+```bash
+# Generate sample files
+python examples/example_generate.py
 
-This repository continues that work as the official
-BXP v2.0 specification and beyond.
+# Read and analyze
+python examples/example_read.py
+```
 
 ---
 
 ## License
 
-Copyright 2026 Elvarin
+Apache 2.0 — Free to use, implement, modify, and distribute.
+No royalties. No restrictions. No gatekeepers.
 
-Licensed under the Apache License, Version 2.0.
-You may not use this work except in compliance with the License.
+---
 
-http://www.apache.org/licenses/LICENSE-2.0
+## Links
 
-[![BXP on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1090206&theme=dark)](https://www.producthunt.com/products/bxp-breathe-exposure-protocol)
+- Specification: [spec/bxp-v2.0.md](spec/bxp-v2.0.md)
+- API Docs: [docs/api_documentation.md](docs/api_documentation.md)
+- Developer Guide: [docs/developer_guide.md](docs/developer_guide.md)
+- GitHub: https://github.com/bxpprotocol/bxp-spec
+- Website: https://bxpprotocol.github.io
+- Contact: bxpprotocol@proton.me
 
 ---
 

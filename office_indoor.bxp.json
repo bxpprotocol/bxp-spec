@@ -1,0 +1,50 @@
+{
+  "bxpVersion": "2.0",
+  "deviceUuid": "42b23232-57ce-4333-9ed3-25b6f501604b",
+  "geohash": "ebzzun4",
+  "latitude": 5.6145,
+  "longitude": -0.1719,
+  "timestampUs": 1772908648120780,
+  "durationS": 60,
+  "indoorOutdoor": "indoor",
+  "agents": [
+    {
+      "agentId": "PM2_5",
+      "value": 12.4,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "TVOC",
+      "value": 120.0,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "TEMP",
+      "value": 23.5,
+      "unit": "C"
+    },
+    {
+      "agentId": "RH",
+      "value": 55.0,
+      "unit": "%"
+    },
+    {
+      "agentId": "CO2",
+      "value": 850.0,
+      "unit": "ppm"
+    }
+  ],
+  "context": {
+    "location": "Office building, 3rd floor"
+  },
+  "quality": {
+    "flag": "UNVALIDATED",
+    "confidence": 0.8,
+    "qcMethod": "client-generated"
+  },
+  "bxpHri": 29.89,
+  "bxpHriLevel": "MODERATE",
+  "bxpHriColor": "#FFBB33",
+  "generatedAt": "2026-03-07T18:37:28.120810+00:00",
+  "payloadHash": "sha256:6eeeca613738beef9f1a6c0ad7d4f5d28b5a20d4fd007f89e7e46e9fdb061459"
+}

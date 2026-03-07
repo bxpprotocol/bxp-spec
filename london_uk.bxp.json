@@ -1,0 +1,57 @@
+{
+  "bxpVersion": "2.0",
+  "deviceUuid": "5143af40-cfe8-41e9-896a-f717c8942830",
+  "geohash": "gcpvj0d",
+  "latitude": 51.5074,
+  "longitude": -0.1278,
+  "timestampUs": 1772913481738232,
+  "durationS": 60,
+  "indoorOutdoor": "outdoor",
+  "agents": [
+    {
+      "agentId": "PM2_5",
+      "value": 14.2,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "PM10",
+      "value": 22.8,
+      "unit": "ug/m3"
+    },
+    {
+      "agentId": "NO2",
+      "value": 38.1,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "O3",
+      "value": 44.2,
+      "unit": "ppb"
+    },
+    {
+      "agentId": "TEMP",
+      "value": 12.0,
+      "unit": "C"
+    },
+    {
+      "agentId": "RH",
+      "value": 72.0,
+      "unit": "%"
+    }
+  ],
+  "context": {
+    "location": "London, United Kingdom",
+    "country": "GB",
+    "nearbySource": "traffic_diesel"
+  },
+  "quality": {
+    "flag": "UNVALIDATED",
+    "confidence": 0.8,
+    "qcMethod": "client-generated"
+  },
+  "bxpHri": 61.04,
+  "bxpHriLevel": "HIGH",
+  "bxpHriColor": "#CC0000",
+  "generatedAt": "2026-03-07T19:58:01.738266+00:00",
+  "payloadHash": "sha256:65df96e5b6c945ca1c946ce5a29270cc027f880dd163419bd6a62e736261ea2d"
+}
