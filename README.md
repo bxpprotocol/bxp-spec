@@ -75,7 +75,7 @@ python server.py
 Server starts at **http://localhost:8000**
 Interactive API docs: **http://localhost:8000/docs**
 
-The server loads 10 sample Accra readings automatically.
+The server loads 10 global city readings automatically.
 
 ---
 
