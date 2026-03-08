@@ -247,7 +247,8 @@ No royalties. No restrictions. No gatekeepers.
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18906812.svg)](https://doi.org/10.5281/zenodo.18906812)
 
-BXP v2.0 Technical Specification: https://doi.org/10.5281/zenodo.18906812
+**Specification:** https://doi.org/10.5281/zenodo.18906812
+**Implementation:** https://doi.org/10.5281/zenodo.18907003
 
 *The air is public. The data should be too.*
 
