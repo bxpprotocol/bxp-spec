@@ -243,5 +243,11 @@ No royalties. No restrictions. No gatekeepers.
 - Contact: bxpprotocol@proton.me
 
 ---
+## Citation
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18906812.svg)](https://doi.org/10.5281/zenodo.18906812)
+
+BXP v2.0 Technical Specification: https://doi.org/10.5281/zenodo.18906812
 
 *The air is public. The data should be too.*
+
