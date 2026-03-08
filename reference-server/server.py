@@ -11,7 +11,7 @@ Docs:     http://localhost:8000/docs
 """
 
 from fastapi import FastAPI, HTTPException, Header, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import uuid
@@ -245,6 +245,56 @@ app = FastAPI(
 )
 
 
+# ─────────────────────────────────────────────────────────────
+# ROOT — redirect to interactive docs
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/", include_in_schema=False)
+def root():
+    return HTMLResponse("""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>BXP — Breathe Exposure Protocol</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .card { text-align: center; max-width: 600px; padding: 40px; }
+        h1 { font-size: 2.5rem; color: #00C851; margin-bottom: 8px; }
+        p { color: #999; font-size: 1.1rem; line-height: 1.6; margin: 16px 0; }
+        .links { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
+        a.btn { padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1rem; }
+        a.primary { background: #00C851; color: #000; }
+        a.secondary { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; }
+        .tag { display: inline-block; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 4px 10px; font-size: 0.8rem; color: #888; margin: 4px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>BXP Node</h1>
+        <p>Breathe Exposure Protocol v2.0<br>The open universal standard for atmospheric exposure data.</p>
+        <p>
+            <span class="tag">● Operational</span>
+            <span class="tag">Apache 2.0</span>
+            <span class="tag">10 cities live</span>
+        </p>
+        <p style="color:#555; font-size:0.9rem;">Like HTTP for air quality. No hardware required. Owned by nobody.</p>
+        <div class="links">
+            <a class="btn primary" href="/docs">Interactive API Docs</a>
+            <a class="btn secondary" href="/bxp/v2/health">Health Check</a>
+            <a class="btn secondary" href="/bxp/v2/readings">Live Readings</a>
+            <a class="btn secondary" href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a>
+        </div>
+    </div>
+</body>
+</html>
+""")
+
+
+# ─────────────────────────────────────────────────────────────
+# API ENDPOINTS
+# ─────────────────────────────────────────────────────────────
+
 @app.get("/bxp/v2/health")
 def health():
     return bxp_response({
@@ -355,23 +405,23 @@ def get_history(geohash: str, limit: int = Query(50, le=500)):
 @app.get("/bxp/v2/agents")
 def get_agents():
     agents = [
-        {"agentId": "PM2_5", "name": "Fine Particulate Matter",      "unit": "ug/m3", "whoLimit": 15.0,  "hriWeight": 0.35},
-        {"agentId": "PM10",  "name": "Coarse Particulate Matter",    "unit": "ug/m3", "whoLimit": 45.0,  "hriWeight": 0.15},
-        {"agentId": "NO2",   "name": "Nitrogen Dioxide",             "unit": "ppb",   "whoLimit": 25.0,  "hriWeight": 0.15},
-        {"agentId": "O3",    "name": "Ground-level Ozone",           "unit": "ppb",   "whoLimit": 100.0, "hriWeight": 0.12},
-        {"agentId": "CO",    "name": "Carbon Monoxide",              "unit": "ppm",   "whoLimit": 4.0,   "hriWeight": 0.10},
-        {"agentId": "SO2",   "name": "Sulphur Dioxide",              "unit": "ppb",   "whoLimit": 40.0,  "hriWeight": 0.05},
-        {"agentId": "TVOC",  "name": "Total Volatile Organic Compounds", "unit": "ppb", "whoLimit": 500.0, "hriWeight": 0.04},
-        {"agentId": "BENZ",  "name": "Benzene",                      "unit": "ppb",   "whoLimit": 1.0,   "hriWeight": 0.02},
-        {"agentId": "FORM",  "name": "Formaldehyde",                 "unit": "ppb",   "whoLimit": 8.0,   "hriWeight": 0.02},
-        {"agentId": "TEMP",  "name": "Temperature",                  "unit": "C",     "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "RH",    "name": "Relative Humidity",            "unit": "%",     "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "PRESS", "name": "Atmospheric Pressure",         "unit": "hPa",   "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "UV",    "name": "UV Index",                     "unit": "index", "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "PM1",   "name": "Ultrafine Particulate Matter", "unit": "ug/m3", "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "CO2",   "name": "Carbon Dioxide",               "unit": "ppm",   "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "H2S",   "name": "Hydrogen Sulphide",            "unit": "ppb",   "whoLimit": 7.0,   "hriWeight": 0},
-        {"agentId": "PB",    "name": "Lead",                         "unit": "ug/m3", "whoLimit": 0.5,   "hriWeight": 0},
+        {"agentId": "PM2_5", "name": "Fine Particulate Matter",          "unit": "ug/m3", "whoLimit": 15.0,  "hriWeight": 0.35},
+        {"agentId": "PM10",  "name": "Coarse Particulate Matter",        "unit": "ug/m3", "whoLimit": 45.0,  "hriWeight": 0.15},
+        {"agentId": "NO2",   "name": "Nitrogen Dioxide",                 "unit": "ppb",   "whoLimit": 25.0,  "hriWeight": 0.15},
+        {"agentId": "O3",    "name": "Ground-level Ozone",               "unit": "ppb",   "whoLimit": 100.0, "hriWeight": 0.12},
+        {"agentId": "CO",    "name": "Carbon Monoxide",                  "unit": "ppm",   "whoLimit": 4.0,   "hriWeight": 0.10},
+        {"agentId": "SO2",   "name": "Sulphur Dioxide",                  "unit": "ppb",   "whoLimit": 40.0,  "hriWeight": 0.05},
+        {"agentId": "TVOC",  "name": "Total Volatile Organic Compounds", "unit": "ppb",   "whoLimit": 500.0, "hriWeight": 0.04},
+        {"agentId": "BENZ",  "name": "Benzene",                          "unit": "ppb",   "whoLimit": 1.0,   "hriWeight": 0.02},
+        {"agentId": "FORM",  "name": "Formaldehyde",                     "unit": "ppb",   "whoLimit": 8.0,   "hriWeight": 0.02},
+        {"agentId": "TEMP",  "name": "Temperature",                      "unit": "C",     "whoLimit": None,  "hriWeight": 0},
+        {"agentId": "RH",    "name": "Relative Humidity",                "unit": "%",     "whoLimit": None,  "hriWeight": 0},
+        {"agentId": "PRESS", "name": "Atmospheric Pressure",             "unit": "hPa",   "whoLimit": None,  "hriWeight": 0},
+        {"agentId": "UV",    "name": "UV Index",                         "unit": "index", "whoLimit": None,  "hriWeight": 0},
+        {"agentId": "PM1",   "name": "Ultrafine Particulate Matter",     "unit": "ug/m3", "whoLimit": None,  "hriWeight": 0},
+        {"agentId": "CO2",   "name": "Carbon Dioxide",                   "unit": "ppm",   "whoLimit": None,  "hriWeight": 0},
+        {"agentId": "H2S",   "name": "Hydrogen Sulphide",                "unit": "ppb",   "whoLimit": 7.0,   "hriWeight": 0},
+        {"agentId": "PB",    "name": "Lead",                             "unit": "ug/m3", "whoLimit": 0.5,   "hriWeight": 0},
     ]
     return bxp_response({"agents": agents, "count": len(agents)})
 
@@ -392,16 +442,16 @@ def calculate_hri_endpoint(
 # ─────────────────────────────────────────────────────────────
 
 GLOBAL_SAMPLES = [
-    {"lat":  5.6037,  "lon":  -0.1870,  "pm25":  47.2, "pm10":  62.1, "no2": 18.3, "o3": 12.0, "temp": 29.0, "rh": 78.0, "city": "Accra, Ghana",            "country": "GH", "source": "traffic"},
-    {"lat":  6.5244,  "lon":   3.3792,  "pm25":  68.4, "pm10":  89.2, "no2": 44.1, "o3":  8.2, "temp": 31.0, "rh": 82.0, "city": "Lagos, Nigeria",           "country": "NG", "source": "traffic_industrial"},
-    {"lat": 28.6139,  "lon":  77.2090,  "pm25": 156.3, "pm10": 228.4, "no2": 67.8, "o3":  5.1, "temp": 22.0, "rh": 45.0, "city": "Delhi, India",             "country": "IN", "source": "vehicles_crop_burning"},
-    {"lat": 39.9042,  "lon": 116.4074,  "pm25":  89.7, "pm10": 134.2, "no2": 58.3, "o3": 11.4, "temp":  8.0, "rh": 38.0, "city": "Beijing, China",           "country": "CN", "source": "coal_traffic"},
-    {"lat": 51.5074,  "lon":  -0.1278,  "pm25":  14.2, "pm10":  22.8, "no2": 38.1, "o3": 44.2, "temp": 12.0, "rh": 72.0, "city": "London, United Kingdom",   "country": "GB", "source": "traffic_diesel"},
-    {"lat":-23.5505,  "lon": -46.6333,  "pm25":  31.8, "pm10":  48.6, "no2": 52.4, "o3": 28.7, "temp": 24.0, "rh": 68.0, "city": "Sao Paulo, Brazil",        "country": "BR", "source": "vehicles_industry"},
-    {"lat": 40.7128,  "lon": -74.0060,  "pm25":  12.1, "pm10":  18.4, "no2": 29.6, "o3": 52.3, "temp": 18.0, "rh": 61.0, "city": "New York, USA",            "country": "US", "source": "traffic_urban"},
-    {"lat": -1.2921,  "lon":  36.8219,  "pm25":  38.9, "pm10":  54.7, "no2": 22.1, "o3": 18.4, "temp": 20.0, "rh": 65.0, "city": "Nairobi, Kenya",           "country": "KE", "source": "traffic_cooking_fires"},
-    {"lat": -6.2088,  "lon": 106.8456,  "pm25":  71.3, "pm10":  98.6, "no2": 41.7, "o3":  9.3, "temp": 33.0, "rh": 85.0, "city": "Jakarta, Indonesia",       "country": "ID", "source": "vehicles_industrial"},
-    {"lat": 30.0444,  "lon":  31.2357,  "pm25":  93.4, "pm10": 187.3, "no2": 49.2, "o3":  7.8, "temp": 28.0, "rh": 35.0, "city": "Cairo, Egypt",             "country": "EG", "source": "desert_dust_traffic"},
+    {"lat":  5.6037,  "lon":  -0.1870,  "pm25":  47.2, "pm10":  62.1, "no2": 18.3, "o3": 12.0, "temp": 29.0, "rh": 78.0, "city": "Accra, Ghana",          "country": "GH", "source": "traffic"},
+    {"lat":  6.5244,  "lon":   3.3792,  "pm25":  68.4, "pm10":  89.2, "no2": 44.1, "o3":  8.2, "temp": 31.0, "rh": 82.0, "city": "Lagos, Nigeria",         "country": "NG", "source": "traffic_industrial"},
+    {"lat": 28.6139,  "lon":  77.2090,  "pm25": 156.3, "pm10": 228.4, "no2": 67.8, "o3":  5.1, "temp": 22.0, "rh": 45.0, "city": "Delhi, India",           "country": "IN", "source": "vehicles_crop_burning"},
+    {"lat": 39.9042,  "lon": 116.4074,  "pm25":  89.7, "pm10": 134.2, "no2": 58.3, "o3": 11.4, "temp":  8.0, "rh": 38.0, "city": "Beijing, China",         "country": "CN", "source": "coal_traffic"},
+    {"lat": 51.5074,  "lon":  -0.1278,  "pm25":  14.2, "pm10":  22.8, "no2": 38.1, "o3": 44.2, "temp": 12.0, "rh": 72.0, "city": "London, United Kingdom", "country": "GB", "source": "traffic_diesel"},
+    {"lat":-23.5505,  "lon": -46.6333,  "pm25":  31.8, "pm10":  48.6, "no2": 52.4, "o3": 28.7, "temp": 24.0, "rh": 68.0, "city": "Sao Paulo, Brazil",      "country": "BR", "source": "vehicles_industry"},
+    {"lat": 40.7128,  "lon": -74.0060,  "pm25":  12.1, "pm10":  18.4, "no2": 29.6, "o3": 52.3, "temp": 18.0, "rh": 61.0, "city": "New York, USA",          "country": "US", "source": "traffic_urban"},
+    {"lat": -1.2921,  "lon":  36.8219,  "pm25":  38.9, "pm10":  54.7, "no2": 22.1, "o3": 18.4, "temp": 20.0, "rh": 65.0, "city": "Nairobi, Kenya",         "country": "KE", "source": "traffic_cooking_fires"},
+    {"lat": -6.2088,  "lon": 106.8456,  "pm25":  71.3, "pm10":  98.6, "no2": 41.7, "o3":  9.3, "temp": 33.0, "rh": 85.0, "city": "Jakarta, Indonesia",     "country": "ID", "source": "vehicles_industrial"},
+    {"lat": 30.0444,  "lon":  31.2357,  "pm25":  93.4, "pm10": 187.3, "no2": 49.2, "o3":  7.8, "temp": 28.0, "rh": 35.0, "city": "Cairo, Egypt",           "country": "EG", "source": "desert_dust_traffic"},
 ]
 
 
