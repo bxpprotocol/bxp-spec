@@ -247,8 +247,11 @@ No royalties. No restrictions. No gatekeepers.
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18906812.svg)](https://doi.org/10.5281/zenodo.18906812)
 
-**Specification:** https://doi.org/10.5281/zenodo.18906812
-**Implementation:** https://doi.org/10.5281/zenodo.18907003
 
-*The air is public. The data should be too.*
+**Specification DOI:** https://doi.org/10.5281/zenodo.18906812
+**Implementation DOI:** https://doi.org/10.5281/zenodo.18907003
+**ORCID:** https://orcid.org/0009-0001-4856-4986
+ 
+ *The air is public. The data should be too.*
+
 
