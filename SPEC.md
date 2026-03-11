@@ -1294,6 +1294,14 @@ This document is the official BXP v2.0 Technical Specification
 — a direct continuation of that original work.
 
 ---
+## References
+
+Simcoe, T. (2012). Standard setting committees: Consensus 
+governance for shared technology platforms. 
+American Economic Review, 102(1), 305-336.
+
+World Health Organization (2021). WHO Global Air Quality 
+Guidelines. Geneva: World Health Organization.
 
 *Copyright 2026 Elvarin — Licensed under Apache 2.0*
 *The air is public. The data should be too.*
