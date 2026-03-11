@@ -1,490 +1,675 @@
 """
-BXP Reference Server v2.0
-Breathe Exposure Protocol — Reference Node Implementation
-
-Run:
-    pip install -r requirements.txt
-    python server.py
-
-API Base: http://localhost:8000/bxp/v2/
-Docs:     http://localhost:8000/docs
+BXP Protocol Reference Node v2.1
+Real-time global atmospheric exposure data
+Powered by AQICN + BXP standard format
 """
 
-from fastapi import FastAPI, HTTPException, Header, Query
-from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Optional, List
-import uuid
+import httpx
+import asyncio
+import json
 import time
 import hashlib
-import json
 from datetime import datetime, timezone
+import uvicorn
 
-# ─────────────────────────────────────────────────────────────
-# BXP_HRI ENGINE
-# ─────────────────────────────────────────────────────────────
-
-WHO_THRESHOLDS = {
-    "PM2_5": 15.0, "PM10": 45.0, "NO2": 25.0,
-    "O3": 100.0,   "CO": 4.0,    "SO2": 40.0,
-    "TVOC": 500.0, "BENZ": 1.0,  "FORM": 8.0,
-}
-
-HRI_WEIGHTS = {
-    "PM2_5": 0.35, "PM10": 0.15, "NO2": 0.15,
-    "O3": 0.12,    "CO": 0.10,   "SO2": 0.05,
-    "TVOC": 0.04,  "BENZ": 0.02, "FORM": 0.02,
-}
-
-RISK_LEVELS = [
-    (0,  20,  "CLEAN",     "#00C851"),
-    (21, 40,  "MODERATE",  "#FFBB33"),
-    (41, 60,  "ELEVATED",  "#FF8800"),
-    (61, 75,  "HIGH",      "#CC0000"),
-    (76, 90,  "VERY_HIGH", "#9B0000"),
-    (91, 100, "HAZARDOUS", "#4A0000"),
-]
-
-
-def calculate_hri(agents: list, duration: str = "1h",
-                  population: str = "general") -> dict:
-    raw = 0.0
-    breakdown = {}
-    d_factor = {"1h": 1.0, "8h": 1.2, "24h": 1.5}.get(duration, 1.0)
-    v_factor = {"general": 1.0, "sensitive": 1.3}.get(population, 1.0)
-
-    for a in agents:
-        aid = a.get("agentId", "")
-        val = a.get("value")
-        if val is None or aid not in WHO_THRESHOLDS:
-            continue
-        thr  = WHO_THRESHOLDS[aid]
-        w    = HRI_WEIGHTS.get(aid, 0)
-        risk = min(1.0, float(val) / thr)
-        contrib = risk * w
-        raw += contrib
-        breakdown[aid] = {
-            "value": val, "threshold": thr,
-            "normalizedRisk": round(risk, 4),
-            "contribution": round(contrib, 4),
-            "exceedsWho": float(val) > thr
-        }
-
-    score = round(min(100.0, raw * 100 * d_factor * v_factor), 2)
-    level = color = "CLEAN"
-    for lo, hi, ln, lc in RISK_LEVELS:
-        if lo <= score <= hi:
-            level, color = ln, lc
-            break
-
-    return {"score": score, "level": level,
-            "color": color, "breakdown": breakdown}
-
-
-# ─────────────────────────────────────────────────────────────
-# GEOHASH ENCODER
-# ─────────────────────────────────────────────────────────────
-
-BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
-
-
-def encode_geohash(lat: float, lon: float, precision: int = 7) -> str:
-    lat_range = [-90.0,  90.0]
-    lon_range = [-180.0, 180.0]
-    bits = [16, 8, 4, 2, 1]
-    bit_idx = 0
-    even = True
-    result = ""
-    ch = 0
-    while len(result) < precision:
-        if even:
-            mid = (lon_range[0] + lon_range[1]) / 2
-            if lon >= mid:
-                ch |= bits[bit_idx]
-                lon_range[0] = mid
-            else:
-                lon_range[1] = mid
-        else:
-            mid = (lat_range[0] + lat_range[1]) / 2
-            if lat >= mid:
-                ch |= bits[bit_idx]
-                lat_range[0] = mid
-            else:
-                lat_range[1] = mid
-        even = not even
-        if bit_idx < 4:
-            bit_idx += 1
-        else:
-            result += BASE32[ch]
-            bit_idx = 0
-            ch = 0
-    return result
-
-
-# ─────────────────────────────────────────────────────────────
-# PYDANTIC MODELS
-# ─────────────────────────────────────────────────────────────
-
-class AgentReading(BaseModel):
-    agentId: str
-    value:   float
-    unit:    str = "canonical"
-
-
-class QualityInfo(BaseModel):
-    flag:       str = "UNVALIDATED"
-    confidence: float = 0.8
-    qcMethod:   str = "automated-v2"
-
-
-class BXPReading(BaseModel):
-    deviceUuid:    str = Field(default_factory=lambda: str(uuid.uuid4()))
-    geohash:       Optional[str] = None
-    latitude:      Optional[float] = None
-    longitude:     Optional[float] = None
-    altitudeM:     Optional[float] = None
-    timestampUs:   Optional[int]   = None
-    durationS:     int = 60
-    indoorOutdoor: str = "outdoor"
-    agents:        List[AgentReading]
-    context:       Optional[dict] = None
-    quality:       Optional[QualityInfo] = None
-
-
-class SubmitRequest(BaseModel):
-    readings: List[BXPReading]
-
-
-# ─────────────────────────────────────────────────────────────
-# IN-MEMORY STORE
-# ─────────────────────────────────────────────────────────────
-
-STORE: dict[str, dict] = {}
-
-
-def store_reading(reading: BXPReading) -> dict:
-    rid    = str(uuid.uuid4())
-    now_us = int(time.time() * 1_000_000)
-
-    geohash = reading.geohash
-    if not geohash and reading.latitude and reading.longitude:
-        geohash = encode_geohash(reading.latitude, reading.longitude, 7)
-
-    agents_list = [a.model_dump() for a in reading.agents]
-    hri = calculate_hri(agents_list)
-
-    record = {
-        "id":            rid,
-        "bxpVersion":    "2.0",
-        "deviceUuid":    reading.deviceUuid,
-        "geohash":       geohash or "unknown",
-        "latitude":      reading.latitude,
-        "longitude":     reading.longitude,
-        "altitudeM":     reading.altitudeM,
-        "timestampUs":   reading.timestampUs or now_us,
-        "durationS":     reading.durationS,
-        "indoorOutdoor": reading.indoorOutdoor,
-        "agents":        agents_list,
-        "context":       reading.context,
-        "quality": {
-            "flag":       (reading.quality.flag if reading.quality else "UNVALIDATED"),
-            "confidence": (reading.quality.confidence if reading.quality else 0.8),
-            "qcMethod":   "automated-v2"
-        },
-        "bxpHri":      hri["score"],
-        "bxpHriLevel": hri["level"],
-        "bxpHriColor": hri["color"],
-        "createdAt":   datetime.now(timezone.utc).isoformat(),
-    }
-
-    payload_str = json.dumps(
-        {k: v for k, v in record.items() if k != "payloadHash"},
-        sort_keys=True, separators=(',', ':')
-    )
-    record["payloadHash"] = "sha256:" + hashlib.sha256(
-        payload_str.encode()
-    ).hexdigest()
-
-    STORE[rid] = record
-    return record
-
-
-def bxp_response(data: dict, status_code: int = 200) -> dict:
-    return {
-        "status":     "ok",
-        "bxpVersion": "2.0",
-        "requestId":  str(uuid.uuid4()),
-        "timestamp":  datetime.now(timezone.utc).isoformat(),
-        "data":       data,
-        "errors":     []
-    }
-
-
-def bxp_error(code: str, message: str, status: int = 400):
-    return JSONResponse(status_code=status, content={
-        "status":     "error",
-        "bxpVersion": "2.0",
-        "requestId":  str(uuid.uuid4()),
-        "timestamp":  datetime.now(timezone.utc).isoformat(),
-        "data":       None,
-        "errors":     [{"code": code, "message": message}]
-    })
-
-
-# ─────────────────────────────────────────────────────────────
-# FASTAPI APP
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────
+AQICN_TOKEN = "68fc34ffbfaf451cc4250b87158ffe04a3dc5dfd"
+BXP_VERSION = "2.0"
+NODE_ID = "bxp-public-node-001"
+# ─────────────────────────────────────────
 
 app = FastAPI(
-    title="BXP Reference Server",
-    description=(
-        "Breathe Exposure Protocol v2.0 — Reference Node Implementation. "
-        "Open source, Apache 2.0. https://github.com/bxpprotocol/bxp-spec"
-    ),
-    version="2.0.0",
+    title="BXP Protocol Node",
+    description="Open standard for atmospheric exposure data",
+    version="2.1.0",
+    docs_url="/docs"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# ─────────────────────────────────────────────────────────────
-# ROOT — redirect to interactive docs
-# ─────────────────────────────────────────────────────────────
+# In-memory cache
+cache = {}
+cache_timestamps = {}
+CACHE_TTL = 600  # 10 minutes
 
-@app.get("/", include_in_schema=False)
-def root():
-    return HTMLResponse("""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>BXP — Breathe Exposure Protocol</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .card { text-align: center; max-width: 600px; padding: 40px; }
-        h1 { font-size: 2.5rem; color: #00C851; margin-bottom: 8px; }
-        p { color: #999; font-size: 1.1rem; line-height: 1.6; margin: 16px 0; }
-        .links { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
-        a.btn { padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1rem; }
-        a.primary { background: #00C851; color: #000; }
-        a.secondary { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; }
-        .tag { display: inline-block; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 4px 10px; font-size: 0.8rem; color: #888; margin: 4px; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>BXP Node</h1>
-        <p>Breathe Exposure Protocol v2.0<br>The open universal standard for atmospheric exposure data.</p>
-        <p>
-            <span class="tag">● Operational</span>
-            <span class="tag">Apache 2.0</span>
-            <span class="tag">10 cities live</span>
-        </p>
-        <p style="color:#555; font-size:0.9rem;">Like HTTP for air quality. No hardware required. Owned by nobody.</p>
-        <div class="links">
-            <a class="btn primary" href="/docs">Interactive API Docs</a>
-            <a class="btn secondary" href="/bxp/v2/health">Health Check</a>
-            <a class="btn secondary" href="/bxp/v2/readings">Live Readings</a>
-            <a class="btn secondary" href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a>
-        </div>
-    </div>
-</body>
-</html>
-""")
+WHO_THRESHOLDS = {
+    "pm25": 15.0, "pm10": 45.0, "no2": 25.0,
+    "o3": 100.0, "co": 4.0, "so2": 40.0
+}
+
+WEIGHTS = {
+    "pm25": 0.35, "pm10": 0.15, "no2": 0.15,
+    "o3": 0.12, "co": 0.10, "so2": 0.05
+}
+
+def calculate_hri(readings: dict) -> float:
+    score = 0.0
+    for agent, weight in WEIGHTS.items():
+        val = readings.get(agent)
+        thresh = WHO_THRESHOLDS.get(agent)
+        if val is not None and thresh:
+            normalized = min(float(val) / thresh, 1.0)
+            score += normalized * weight
+    return round(score * 100, 1)
+
+def hri_level(hri: float) -> str:
+    if hri <= 20: return "CLEAN"
+    if hri <= 40: return "MODERATE"
+    if hri <= 60: return "ELEVATED"
+    if hri <= 75: return "HIGH"
+    if hri <= 90: return "VERY_HIGH"
+    return "HAZARDOUS"
+
+def hri_color(hri: float) -> str:
+    if hri <= 20: return "#00E676"
+    if hri <= 40: return "#FFEB3B"
+    if hri <= 60: return "#FF9800"
+    if hri <= 75: return "#F44336"
+    if hri <= 90: return "#9C27B0"
+    return "#4A0000"
+
+def hri_advice(level: str) -> str:
+    advice = {
+        "CLEAN": "Air quality is excellent. Enjoy outdoor activities freely.",
+        "MODERATE": "Air quality is acceptable. Sensitive individuals should limit prolonged outdoor exertion.",
+        "ELEVATED": "Sensitive groups should reduce prolonged outdoor exertion.",
+        "HIGH": "Everyone should reduce prolonged outdoor exertion. Sensitive groups stay indoors.",
+        "VERY_HIGH": "Avoid outdoor activities. Sensitive groups must stay indoors.",
+        "HAZARDOUS": "Health emergency. Everyone should avoid all outdoor activity."
+    }
+    return advice.get(level, "")
+
+async def fetch_city_data(city: str) -> Optional[dict]:
+    cache_key = city.lower().strip()
+    now = time.time()
+
+    if cache_key in cache and (now - cache_timestamps.get(cache_key, 0)) < CACHE_TTL:
+        return cache[cache_key]
+
+    url = f"https://api.waqi.info/feed/{city}/?token={AQICN_TOKEN}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            data = resp.json()
+
+        if data.get("status") != "ok":
+            return None
+
+        d = data["data"]
+        iaqi = d.get("iaqi", {})
+
+        readings = {
+            "pm25": iaqi.get("pm25", {}).get("v"),
+            "pm10": iaqi.get("pm10", {}).get("v"),
+            "no2":  iaqi.get("no2",  {}).get("v"),
+            "o3":   iaqi.get("o3",   {}).get("v"),
+            "co":   iaqi.get("co",   {}).get("v"),
+            "so2":  iaqi.get("so2",  {}).get("v"),
+        }
+
+        hri = calculate_hri(readings)
+        level = hri_level(hri)
+
+        city_name = d.get("city", {}).get("name", city)
+        geo = d.get("city", {}).get("geo", [0, 0])
+
+        bxp_record = {
+            "bxp_version": BXP_VERSION,
+            "record_id": hashlib.sha256(f"{city_name}{time.time()}".encode()).hexdigest()[:16],
+            "node_id": NODE_ID,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "location": {
+                "name": city_name,
+                "query": city,
+                "latitude": geo[0] if len(geo) > 0 else None,
+                "longitude": geo[1] if len(geo) > 1 else None,
+            },
+            "readings": {k: v for k, v in readings.items() if v is not None},
+            "bxp_hri": {
+                "score": hri,
+                "level": level,
+                "color": hri_color(hri),
+                "advice": hri_advice(level),
+            },
+            "source": "AQICN",
+            "aqi": d.get("aqi"),
+            "dominant_pollutant": d.get("dominentpol"),
+            "attribution": d.get("attributions", [{}])[0].get("name", "AQICN") if d.get("attributions") else "AQICN",
+        }
+
+        cache[cache_key] = bxp_record
+        cache_timestamps[cache_key] = now
+        return bxp_record
+
+    except Exception:
+        return None
 
 
-# ─────────────────────────────────────────────────────────────
-# API ENDPOINTS
-# ─────────────────────────────────────────────────────────────
+# ─── ROUTES ───────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return HTMLResponse(LANDING_PAGE)
 
 @app.get("/bxp/v2/health")
-def health():
-    return bxp_response({
-        "nodeType":     "community",
-        "bxpVersion":   "2.0",
-        "readingCount": len(STORE),
-        "uptime":       "operational"
-    })
+async def health():
+    return {
+        "status": "operational",
+        "node_id": NODE_ID,
+        "bxp_version": BXP_VERSION,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "cached_locations": len(cache),
+        "spec": "https://github.com/bxpprotocol/bxp-spec",
+        "doi": "https://doi.org/10.5281/zenodo.18906812"
+    }
 
-
-@app.post("/bxp/v2/readings", status_code=201)
-def submit_readings(body: SubmitRequest):
-    if not body.readings:
-        return bxp_error("BXP_4001", "No readings provided")
-
-    results = []
-    for r in body.readings:
-        if not r.agents:
-            return bxp_error("BXP_4002", "Each reading must have at least one agent")
-        record = store_reading(r)
-        results.append({
-            "readingId":   record["id"],
-            "geohash":     record["geohash"],
-            "bxpHri":      record["bxpHri"],
-            "bxpHriLevel": record["bxpHriLevel"],
-            "qualityFlag": record["quality"]["flag"],
-        })
-
-    return JSONResponse(status_code=201, content=bxp_response({
-        "submitted": len(results),
-        "readings":  results
-    }))
-
+@app.get("/bxp/v2/readings/{city}")
+async def get_city(city: str):
+    data = await fetch_city_data(city)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"No data found for '{city}'. Try a different city name.")
+    return data
 
 @app.get("/bxp/v2/readings")
-def get_readings(
-    geohash: Optional[str] = Query(None),
-    quality: Optional[str] = Query(None),
-    limit:   int           = Query(100, le=1000),
-    offset:  int           = Query(0)
-):
-    results = list(STORE.values())
+async def get_default_readings():
+    cities = ["accra", "lagos", "delhi", "beijing", "london",
+              "sao paulo", "new york", "nairobi", "jakarta", "cairo"]
+    results = []
+    for city in cities:
+        data = await fetch_city_data(city)
+        if data:
+            results.append(data)
+    return {"count": len(results), "readings": results}
 
-    if geohash:
-        results = [r for r in results
-                   if r.get("geohash", "").startswith(geohash)]
-    if quality:
-        results = [r for r in results
-                   if r.get("quality", {}).get("flag") == quality.upper()]
+@app.get("/dashboard/{city}", response_class=HTMLResponse)
+async def dashboard(city: str):
+    data = await fetch_city_data(city)
+    if not data:
+        return HTMLResponse(f"""<!DOCTYPE html>
+<html><body style="background:#060b18;color:white;font-family:sans-serif;display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:1rem">
+<h1 style="font-size:2rem">Location not found</h1>
+<p style="color:#4a5568">No air quality data available for "{city}"</p>
+<a href="/dashboard" style="color:#00d4ff;text-decoration:none">← Try another location</a>
+</body></html>""")
+    return HTMLResponse(render_dashboard(data))
 
-    results.sort(key=lambda r: r.get("timestampUs", 0), reverse=True)
-    page = results[offset: offset + limit]
-
-    return bxp_response({
-        "readings":      page,
-        "totalCount":    len(results),
-        "returnedCount": len(page),
-        "offset":        offset
-    })
-
-
-@app.get("/bxp/v2/readings/{reading_id}")
-def get_reading(reading_id: str):
-    record = STORE.get(reading_id)
-    if not record:
-        return bxp_error("BXP_4040", f"Reading {reading_id} not found", 404)
-    return bxp_response({"reading": record})
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_home():
+    return HTMLResponse(SEARCH_PAGE)
 
 
-@app.get("/bxp/v2/locations/{geohash}/latest")
-def get_latest(geohash: str):
-    if len(geohash) < 5:
-        return bxp_error("BXP_4003", "Geohash precision must be at least 5")
+# ─── DASHBOARD RENDERER ───────────────────
 
-    matches = [r for r in STORE.values()
-               if r.get("geohash", "").startswith(geohash)]
+def render_dashboard(data: dict) -> str:
+    hri = data["bxp_hri"]["score"]
+    level = data["bxp_hri"]["level"]
+    color = data["bxp_hri"]["color"]
+    advice = data["bxp_hri"]["advice"]
+    location = data["location"]["name"]
+    readings = data["readings"]
+    timestamp = data["timestamp"]
+    aqi = data.get("aqi", "N/A")
+    dominant = (data.get("dominant_pollutant") or "").upper()
+    query = data["location"]["query"]
 
-    if not matches:
-        return bxp_error("BXP_4041",
-                         f"No readings found for geohash {geohash}", 404)
+    # parse color to rgb for glow
+    try:
+        r = int(color[1:3], 16)
+        g = int(color[3:5], 16)
+        b = int(color[5:7], 16)
+        rgb = f"{r},{g},{b}"
+    except Exception:
+        rgb = "0,212,255"
 
-    latest = max(matches, key=lambda r: r.get("timestampUs", 0))
-    return bxp_response({
-        "geohash":     geohash,
-        "reading":     latest,
-        "bxpHri":      latest["bxpHri"],
-        "bxpHriLevel": latest["bxpHriLevel"],
-        "bxpHriColor": latest["bxpHriColor"],
-    })
+    def reading_card(label, key, unit):
+        val = readings.get(key)
+        if val is None:
+            return f'''<div class="r-card">
+<span class="r-label">{label}</span>
+<span class="r-val na">N/A</span>
+<div class="r-bar-bg"><div class="r-bar" style="width:0%"></div></div>
+<span class="r-who">WHO: {WHO_THRESHOLDS.get(key,"—")} {unit}</span>
+</div>'''
+        thresh = WHO_THRESHOLDS.get(key, 100)
+        pct = min(int((float(val) / thresh) * 100), 100)
+        bar_color = "#00E676" if pct < 50 else "#FF9800" if pct < 100 else "#F44336"
+        return f'''<div class="r-card">
+<span class="r-label">{label}</span>
+<span class="r-val">{val}<span class="r-unit"> {unit}</span></span>
+<div class="r-bar-bg"><div class="r-bar" style="width:{pct}%;background:{bar_color}"></div></div>
+<span class="r-who">WHO threshold: {thresh} {unit}</span>
+</div>'''
+
+    cards = "".join([
+        reading_card("PM2.5", "pm25", "μg/m³"),
+        reading_card("PM10",  "pm10", "μg/m³"),
+        reading_card("NO₂",   "no2",  "μg/m³"),
+        reading_card("O₃",    "o3",   "μg/m³"),
+        reading_card("CO",    "co",   "mg/m³"),
+        reading_card("SO₂",   "so2",  "μg/m³"),
+    ])
+
+    dominant_pill = f'<span class="meta-pill">Dominant: {dominant}</span>' if dominant else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BXP — {location} Air Quality</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+:root{{
+  --bg:#060b18;--surface:#0d1628;--border:#1a2540;
+  --text:#e8edf5;--muted:#4a5568;--accent:#00d4ff;
+  --hri:{color};--rgb:{rgb};
+}}
+body{{
+  background:var(--bg);color:var(--text);
+  font-family:'Syne',sans-serif;min-height:100vh;
+  background-image:
+    radial-gradient(ellipse at 15% 15%,rgba(0,212,255,0.03) 0%,transparent 50%),
+    radial-gradient(ellipse at 85% 85%,rgba(var(--rgb),0.06) 0%,transparent 50%);
+}}
+header{{
+  padding:1.25rem 2rem;display:flex;align-items:center;
+  justify-content:space-between;border-bottom:1px solid var(--border);
+  background:rgba(6,11,24,0.92);backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:100;
+}}
+.logo{{font-family:'Space Mono',monospace;font-size:0.9rem;color:var(--accent);letter-spacing:0.15em}}
+nav a{{color:var(--muted);text-decoration:none;margin-left:1.5rem;font-size:0.82rem;transition:color 0.2s}}
+nav a:hover{{color:var(--accent)}}
+.main{{max-width:1100px;margin:0 auto;padding:3rem 2rem}}
+.loc{{font-size:clamp(2rem,5vw,3.5rem);font-weight:800;letter-spacing:-0.02em;line-height:1;margin-bottom:0.4rem}}
+.ts{{font-family:'Space Mono',monospace;font-size:0.7rem;color:var(--muted);margin-bottom:2.5rem}}
+.hri-block{{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:1.5rem;padding:2.5rem;margin-bottom:2rem;
+  display:grid;grid-template-columns:auto 1fr;gap:3rem;
+  align-items:center;position:relative;overflow:hidden;
+}}
+.hri-block::after{{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--hri);
+}}
+.score{{
+  font-size:clamp(4rem,10vw,6.5rem);font-weight:800;
+  font-family:'Space Mono',monospace;color:var(--hri);line-height:1;
+  text-shadow:0 0 60px rgba(var(--rgb),0.4);
+}}
+.level{{font-size:1.4rem;font-weight:700;color:var(--hri);margin-bottom:0.6rem;letter-spacing:0.05em}}
+.advice{{font-size:0.95rem;color:#94a3b8;line-height:1.65;margin-bottom:1rem;max-width:480px}}
+.pills{{display:flex;gap:0.75rem;flex-wrap:wrap}}
+.meta-pill{{
+  font-family:'Space Mono',monospace;font-size:0.65rem;
+  padding:0.3rem 0.8rem;border:1px solid var(--border);
+  border-radius:999px;color:var(--muted);
+}}
+.grid{{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+  gap:0.85rem;margin-bottom:2.5rem;
+}}
+.r-card{{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:1rem;padding:1.4rem;
+  transition:border-color 0.2s,transform 0.15s;
+}}
+.r-card:hover{{border-color:var(--accent);transform:translateY(-2px)}}
+.r-label{{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted);
+  letter-spacing:0.12em;text-transform:uppercase;display:block;margin-bottom:0.5rem}}
+.r-val{{font-size:1.9rem;font-weight:800;font-family:'Space Mono',monospace;
+  display:block;margin-bottom:0.65rem}}
+.r-val.na{{color:var(--muted);font-size:1.4rem}}
+.r-unit{{font-size:0.85rem;color:var(--muted);font-weight:400}}
+.r-bar-bg{{height:3px;background:var(--border);border-radius:999px;margin-bottom:0.5rem}}
+.r-bar{{height:3px;border-radius:999px}}
+.r-who{{font-family:'Space Mono',monospace;font-size:0.6rem;color:var(--muted)}}
+.search-row{{
+  display:flex;gap:0;background:var(--surface);
+  border:1px solid var(--border);border-radius:0.85rem;
+  overflow:hidden;margin-bottom:3rem;
+  transition:border-color 0.2s;
+}}
+.search-row:focus-within{{border-color:var(--accent)}}
+.s-input{{
+  flex:1;background:transparent;border:none;outline:none;
+  padding:1rem 1.25rem;color:var(--text);
+  font-family:'Syne',sans-serif;font-size:1rem;
+}}
+.s-input::placeholder{{color:var(--muted)}}
+.s-btn{{
+  background:var(--accent);color:#060b18;border:none;
+  padding:1rem 1.75rem;font-family:'Syne',sans-serif;
+  font-weight:700;font-size:0.9rem;cursor:pointer;
+  transition:opacity 0.2s;white-space:nowrap;
+}}
+.s-btn:hover{{opacity:0.85}}
+footer{{
+  border-top:1px solid var(--border);padding:1.5rem 2rem;
+  text-align:center;max-width:1100px;margin:0 auto;
+}}
+.fbadge{{
+  display:inline-flex;align-items:center;gap:0.5rem;
+  font-family:'Space Mono',monospace;font-size:0.65rem;
+  color:var(--muted);text-decoration:none;
+  border:1px solid var(--border);padding:0.4rem 1rem;
+  border-radius:999px;transition:all 0.2s;
+}}
+.fbadge:hover{{border-color:var(--accent);color:var(--accent)}}
+.dot{{width:6px;height:6px;background:#00E676;border-radius:50%;
+  animation:pulse 2s infinite}}
+@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:0.3}}}}
+@media(max-width:640px){{
+  .hri-block{{grid-template-columns:1fr;gap:1.5rem}}
+  .score{{font-size:4rem}}
+}}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">BXP NODE</span>
+  <nav>
+    <a href="/dashboard">🔍 Search</a>
+    <a href="/bxp/v2/readings/{query}">JSON</a>
+    <a href="/bxp/v2/health">Status</a>
+    <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<div class="main">
+  <div class="loc">{location}</div>
+  <div class="ts">Updated {timestamp[:19].replace("T"," ")} UTC · BXP v{BXP_VERSION} · {data.get("attribution","AQICN")}</div>
+
+  <div class="hri-block">
+    <div class="score">{hri}</div>
+    <div>
+      <div class="level">{level}</div>
+      <div class="advice">{advice}</div>
+      <div class="pills">
+        <span class="meta-pill">AQI {aqi}</span>
+        {dominant_pill}
+        <span class="meta-pill">BXP_HRI {hri}/100</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">{cards}</div>
+
+  <div class="search-row">
+    <input class="s-input" id="si" placeholder="Search any city, town, or location worldwide..."
+           onkeydown="if(event.key==='Enter')go()">
+    <button class="s-btn" onclick="go()">Check Air →</button>
+  </div>
+</div>
+
+<footer>
+  <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank" class="fbadge">
+    <span class="dot"></span>
+    BXP Protocol — Open Standard for Atmospheric Exposure Data · Apache 2.0
+  </a>
+</footer>
+
+<script>
+function go(){{
+  const v=document.getElementById('si').value.trim();
+  if(v) window.location.href='/dashboard/'+encodeURIComponent(v);
+}}
+</script>
+</body>
+</html>"""
 
 
-@app.get("/bxp/v2/locations/{geohash}/history")
-def get_history(geohash: str, limit: int = Query(50, le=500)):
-    if len(geohash) < 5:
-        return bxp_error("BXP_4003", "Geohash precision must be at least 5")
+# ─── SEARCH PAGE ──────────────────────────
 
-    matches = [r for r in STORE.values()
-               if r.get("geohash", "").startswith(geohash)]
-    matches.sort(key=lambda r: r.get("timestampUs", 0), reverse=True)
+SEARCH_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BXP — Global Air Quality</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#060b18;color:#e8edf5;font-family:'Syne',sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  background-image:radial-gradient(ellipse at 50% 40%,rgba(0,212,255,0.05) 0%,transparent 65%);
+}
+.title{
+  font-size:clamp(2.5rem,7vw,5.5rem);font-weight:800;
+  text-align:center;letter-spacing:-0.03em;line-height:0.95;margin-bottom:1.25rem;
+}
+.title span{color:#00d4ff}
+.sub{color:#4a5568;text-align:center;margin-bottom:3rem;font-size:1rem;
+  max-width:420px;line-height:1.7}
+.wrap{width:100%;max-width:580px;padding:0 1.5rem}
+.box{
+  display:flex;background:#0d1628;border:1px solid #1a2540;
+  border-radius:1rem;overflow:hidden;transition:border-color 0.2s;
+}
+.box:focus-within{border-color:#00d4ff}
+input{
+  flex:1;background:transparent;border:none;outline:none;
+  padding:1.2rem 1.5rem;color:#e8edf5;
+  font-family:'Syne',sans-serif;font-size:1.05rem;
+}
+input::placeholder{color:#2d3748}
+button{
+  background:#00d4ff;color:#060b18;border:none;
+  padding:1.2rem 2rem;font-family:'Syne',sans-serif;
+  font-weight:700;font-size:0.95rem;cursor:pointer;
+  transition:background 0.2s;white-space:nowrap;
+}
+button:hover{background:#00b8d9}
+.cities{
+  display:flex;flex-wrap:wrap;gap:0.5rem;
+  justify-content:center;margin-top:2rem;
+  max-width:580px;padding:0 1.5rem;
+}
+.cp{
+  font-family:'Space Mono',monospace;font-size:0.65rem;
+  padding:0.35rem 0.9rem;border:1px solid #1a2540;
+  border-radius:999px;color:#4a5568;cursor:pointer;
+  transition:all 0.2s;text-decoration:none;
+}
+.cp:hover{border-color:#00d4ff;color:#00d4ff}
+.foot{
+  position:fixed;bottom:1.5rem;
+  font-family:'Space Mono',monospace;font-size:0.6rem;color:#2d3748;
+}
+.foot a{color:#2d3748;text-decoration:none;transition:color 0.2s}
+.foot a:hover{color:#00d4ff}
+</style>
+</head>
+<body>
+<div class="title">Air quality<br>for <span>every place</span><br>on earth.</div>
+<div class="sub">Real-time atmospheric exposure data. Powered by BXP — the open standard.</div>
+<div class="wrap">
+  <div class="box">
+    <input id="ci" placeholder="Any city, town, village, or location..." autofocus
+           onkeydown="if(event.key==='Enter')go()">
+    <button onclick="go()">Check Air →</button>
+  </div>
+</div>
+<div class="cities">
+  <a class="cp" href="/dashboard/accra">Accra</a>
+  <a class="cp" href="/dashboard/lagos">Lagos</a>
+  <a class="cp" href="/dashboard/nairobi">Nairobi</a>
+  <a class="cp" href="/dashboard/cairo">Cairo</a>
+  <a class="cp" href="/dashboard/casablanca">Casablanca</a>
+  <a class="cp" href="/dashboard/johannesburg">Johannesburg</a>
+  <a class="cp" href="/dashboard/delhi">Delhi</a>
+  <a class="cp" href="/dashboard/beijing">Beijing</a>
+  <a class="cp" href="/dashboard/jakarta">Jakarta</a>
+  <a class="cp" href="/dashboard/tokyo">Tokyo</a>
+  <a class="cp" href="/dashboard/mumbai">Mumbai</a>
+  <a class="cp" href="/dashboard/dhaka">Dhaka</a>
+  <a class="cp" href="/dashboard/karachi">Karachi</a>
+  <a class="cp" href="/dashboard/seoul">Seoul</a>
+  <a class="cp" href="/dashboard/london">London</a>
+  <a class="cp" href="/dashboard/paris">Paris</a>
+  <a class="cp" href="/dashboard/berlin">Berlin</a>
+  <a class="cp" href="/dashboard/new york">New York</a>
+  <a class="cp" href="/dashboard/los angeles">Los Angeles</a>
+  <a class="cp" href="/dashboard/sao paulo">São Paulo</a>
+  <a class="cp" href="/dashboard/mexico city">Mexico City</a>
+  <a class="cp" href="/dashboard/buenos aires">Buenos Aires</a>
+  <a class="cp" href="/dashboard/sydney">Sydney</a>
+  <a class="cp" href="/dashboard/toronto">Toronto</a>
+</div>
+<div class="foot">
+  <a href="/" >BXP Protocol</a> ·
+  <a href="/bxp/v2/health">Node Status</a> ·
+  <a href="/docs">API</a> ·
+  <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a>
+</div>
+<script>
+function go(){
+  const v=document.getElementById('ci').value.trim();
+  if(v) window.location.href='/dashboard/'+encodeURIComponent(v);
+}
+</script>
+</body>
+</html>"""
 
-    return bxp_response({
-        "geohash":  geohash,
-        "readings": matches[:limit],
-        "count":    len(matches)
-    })
 
+# ─── LANDING PAGE ─────────────────────────
 
-@app.get("/bxp/v2/agents")
-def get_agents():
-    agents = [
-        {"agentId": "PM2_5", "name": "Fine Particulate Matter",          "unit": "ug/m3", "whoLimit": 15.0,  "hriWeight": 0.35},
-        {"agentId": "PM10",  "name": "Coarse Particulate Matter",        "unit": "ug/m3", "whoLimit": 45.0,  "hriWeight": 0.15},
-        {"agentId": "NO2",   "name": "Nitrogen Dioxide",                 "unit": "ppb",   "whoLimit": 25.0,  "hriWeight": 0.15},
-        {"agentId": "O3",    "name": "Ground-level Ozone",               "unit": "ppb",   "whoLimit": 100.0, "hriWeight": 0.12},
-        {"agentId": "CO",    "name": "Carbon Monoxide",                  "unit": "ppm",   "whoLimit": 4.0,   "hriWeight": 0.10},
-        {"agentId": "SO2",   "name": "Sulphur Dioxide",                  "unit": "ppb",   "whoLimit": 40.0,  "hriWeight": 0.05},
-        {"agentId": "TVOC",  "name": "Total Volatile Organic Compounds", "unit": "ppb",   "whoLimit": 500.0, "hriWeight": 0.04},
-        {"agentId": "BENZ",  "name": "Benzene",                          "unit": "ppb",   "whoLimit": 1.0,   "hriWeight": 0.02},
-        {"agentId": "FORM",  "name": "Formaldehyde",                     "unit": "ppb",   "whoLimit": 8.0,   "hriWeight": 0.02},
-        {"agentId": "TEMP",  "name": "Temperature",                      "unit": "C",     "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "RH",    "name": "Relative Humidity",                "unit": "%",     "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "PRESS", "name": "Atmospheric Pressure",             "unit": "hPa",   "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "UV",    "name": "UV Index",                         "unit": "index", "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "PM1",   "name": "Ultrafine Particulate Matter",     "unit": "ug/m3", "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "CO2",   "name": "Carbon Dioxide",                   "unit": "ppm",   "whoLimit": None,  "hriWeight": 0},
-        {"agentId": "H2S",   "name": "Hydrogen Sulphide",                "unit": "ppb",   "whoLimit": 7.0,   "hriWeight": 0},
-        {"agentId": "PB",    "name": "Lead",                             "unit": "ug/m3", "whoLimit": 0.5,   "hriWeight": 0},
-    ]
-    return bxp_response({"agents": agents, "count": len(agents)})
+LANDING_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BXP Protocol — Open Standard for Atmospheric Exposure Data</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#060b18;--surface:#0d1628;--border:#1a2540;--text:#e8edf5;--muted:#4a5568;--accent:#00d4ff}
+body{
+  background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;
+  background-image:radial-gradient(ellipse at 20% 20%,rgba(0,212,255,0.04) 0%,transparent 60%);
+}
+header{
+  padding:1.25rem 2rem;display:flex;align-items:center;
+  justify-content:space-between;border-bottom:1px solid var(--border);
+}
+.logo{font-family:'Space Mono',monospace;font-size:0.9rem;color:var(--accent);letter-spacing:0.15em}
+nav a{color:var(--muted);text-decoration:none;margin-left:1.5rem;font-size:0.82rem;transition:color 0.2s}
+nav a:hover{color:var(--accent)}
+.hero{max-width:900px;margin:5rem auto;padding:0 2rem;text-align:center}
+h1{font-size:clamp(2.8rem,7vw,5.5rem);font-weight:800;letter-spacing:-0.03em;line-height:0.95;margin-bottom:1.25rem}
+h1 span{color:var(--accent)}
+.tag{font-size:1.1rem;color:#94a3b8;max-width:520px;margin:0 auto 2.5rem;line-height:1.7}
+.ctas{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-bottom:5rem}
+.btn-p{background:var(--accent);color:#060b18;padding:0.9rem 2.25rem;border-radius:0.75rem;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:0.95rem;text-decoration:none;transition:opacity 0.2s}
+.btn-p:hover{opacity:0.85}
+.btn-s{background:transparent;color:var(--text);padding:0.9rem 2.25rem;border-radius:0.75rem;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:0.95rem;text-decoration:none;
+  border:1px solid var(--border);transition:border-color 0.2s}
+.btn-s:hover{border-color:var(--accent)}
+.stats{
+  display:flex;justify-content:center;gap:4rem;flex-wrap:wrap;
+  padding:2.5rem;background:var(--surface);border:1px solid var(--border);
+  border-radius:1.5rem;max-width:750px;margin:0 auto 5rem;
+}
+.sv{font-size:2.5rem;font-weight:800;font-family:'Space Mono',monospace;color:var(--accent);display:block}
+.sl{font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-top:0.2rem}
+.code{
+  background:var(--surface);border:1px solid var(--border);border-radius:1rem;
+  padding:1.5rem 2rem;font-family:'Space Mono',monospace;font-size:0.82rem;
+  text-align:left;max-width:560px;margin:0 auto 5rem;line-height:2.1;color:#94a3b8;
+}
+.cm{color:var(--muted)}.cd{color:var(--accent)}
+.sec{max-width:900px;margin:0 auto 5rem;padding:0 2rem}
+.st{font-size:1.8rem;font-weight:800;margin-bottom:1.75rem;letter-spacing:-0.02em}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:1rem;padding:1.5rem}
+.ci{font-size:1.4rem;margin-bottom:0.65rem}
+.ct{font-weight:700;margin-bottom:0.4rem}
+.cb{color:#94a3b8;font-size:0.88rem;line-height:1.6}
+footer{
+  border-top:1px solid var(--border);padding:2rem;text-align:center;
+  font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted);
+}
+footer a{color:var(--muted);text-decoration:none;transition:color 0.2s}
+footer a:hover{color:var(--accent)}
+.dot{width:7px;height:7px;background:#00E676;border-radius:50%;
+  display:inline-block;animation:p 2s infinite;margin-right:0.4rem;vertical-align:middle}
+@keyframes p{0%,100%{opacity:1}50%{opacity:0.3}}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">BXP PROTOCOL</span>
+  <nav>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/bxp/v2/health">Status</a>
+    <a href="/docs">API</a>
+    <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a>
+  </nav>
+</header>
 
+<div class="hero">
+  <h1>The open standard<br>for <span>air quality</span><br>data.</h1>
+  <p class="tag">Like HTTP for the web — any device writes it, any software reads it, nobody owns it. Apache 2.0. Forever free.</p>
+  <div class="ctas">
+    <a href="/dashboard" class="btn-p">Live Global Dashboard →</a>
+    <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank" class="btn-s">View Specification</a>
+  </div>
+  <div class="stats">
+    <div><span class="sv">7M</span><span class="sl">Deaths per year</span></div>
+    <div><span class="sv">31</span><span class="sl">Atmospheric agents</span></div>
+    <div><span class="sv">∞</span><span class="sl">Cities worldwide</span></div>
+  </div>
+  <div class="code">
+    <span class="cm"># Run your own BXP node in 3 minutes</span><br>
+    <span class="cd">git clone</span> https://github.com/bxpprotocol/bxp-spec<br>
+    <span class="cd">cd</span> bxp-spec/reference-server<br>
+    <span class="cd">pip install</span> fastapi uvicorn pydantic httpx<br>
+    <span class="cd">python</span> server.py
+  </div>
+</div>
 
-@app.post("/bxp/v2/hri/calculate")
-def calculate_hri_endpoint(
-    agents:     List[AgentReading],
-    duration:   str = Query("1h"),
-    population: str = Query("general")
-):
-    result = calculate_hri([a.model_dump() for a in agents],
-                           duration, population)
-    return bxp_response({"hri": result})
+<div class="sec">
+  <div class="st">What BXP defines</div>
+  <div class="grid">
+    <div class="card"><div class="ci">📄</div><div class="ct">Universal File Format</div><div class="cb">A .bxp file any device or software can read and write. One format. Every sensor. Everywhere.</div></div>
+    <div class="card"><div class="ci">📊</div><div class="ct">BXP_HRI Score</div><div class="cb">Composite Health Risk Index with WHO-derived weighting across all atmospheric agents. 0–100.</div></div>
+    <div class="card"><div class="ci">🌐</div><div class="ct">REST API Spec</div><div class="cb">Federated node architecture. Any institution runs a node. Nodes interoperate. Nobody owns the network.</div></div>
+    <div class="card"><div class="ci">🔒</div><div class="ct">Privacy Framework</div><div class="cb">Individual records protected by design. Only aggregates shared across the federated network.</div></div>
+  </div>
+</div>
 
+<div class="sec" style="text-align:center">
+  <div class="st">Live public node</div>
+  <p style="color:#94a3b8;margin-bottom:2rem"><span class="dot"></span>Operational — real-time global data</p>
+  <a href="/dashboard" class="btn-p">Open Global Dashboard →</a>
+</div>
 
-# ─────────────────────────────────────────────────────────────
-# STARTUP — 10 Global cities sample data
-# ─────────────────────────────────────────────────────────────
-
-GLOBAL_SAMPLES = [
-    {"lat":  5.6037,  "lon":  -0.1870,  "pm25":  47.2, "pm10":  62.1, "no2": 18.3, "o3": 12.0, "temp": 29.0, "rh": 78.0, "city": "Accra, Ghana",          "country": "GH", "source": "traffic"},
-    {"lat":  6.5244,  "lon":   3.3792,  "pm25":  68.4, "pm10":  89.2, "no2": 44.1, "o3":  8.2, "temp": 31.0, "rh": 82.0, "city": "Lagos, Nigeria",         "country": "NG", "source": "traffic_industrial"},
-    {"lat": 28.6139,  "lon":  77.2090,  "pm25": 156.3, "pm10": 228.4, "no2": 67.8, "o3":  5.1, "temp": 22.0, "rh": 45.0, "city": "Delhi, India",           "country": "IN", "source": "vehicles_crop_burning"},
-    {"lat": 39.9042,  "lon": 116.4074,  "pm25":  89.7, "pm10": 134.2, "no2": 58.3, "o3": 11.4, "temp":  8.0, "rh": 38.0, "city": "Beijing, China",         "country": "CN", "source": "coal_traffic"},
-    {"lat": 51.5074,  "lon":  -0.1278,  "pm25":  14.2, "pm10":  22.8, "no2": 38.1, "o3": 44.2, "temp": 12.0, "rh": 72.0, "city": "London, United Kingdom", "country": "GB", "source": "traffic_diesel"},
-    {"lat":-23.5505,  "lon": -46.6333,  "pm25":  31.8, "pm10":  48.6, "no2": 52.4, "o3": 28.7, "temp": 24.0, "rh": 68.0, "city": "Sao Paulo, Brazil",      "country": "BR", "source": "vehicles_industry"},
-    {"lat": 40.7128,  "lon": -74.0060,  "pm25":  12.1, "pm10":  18.4, "no2": 29.6, "o3": 52.3, "temp": 18.0, "rh": 61.0, "city": "New York, USA",          "country": "US", "source": "traffic_urban"},
-    {"lat": -1.2921,  "lon":  36.8219,  "pm25":  38.9, "pm10":  54.7, "no2": 22.1, "o3": 18.4, "temp": 20.0, "rh": 65.0, "city": "Nairobi, Kenya",         "country": "KE", "source": "traffic_cooking_fires"},
-    {"lat": -6.2088,  "lon": 106.8456,  "pm25":  71.3, "pm10":  98.6, "no2": 41.7, "o3":  9.3, "temp": 33.0, "rh": 85.0, "city": "Jakarta, Indonesia",     "country": "ID", "source": "vehicles_industrial"},
-    {"lat": 30.0444,  "lon":  31.2357,  "pm25":  93.4, "pm10": 187.3, "no2": 49.2, "o3":  7.8, "temp": 28.0, "rh": 35.0, "city": "Cairo, Egypt",           "country": "EG", "source": "desert_dust_traffic"},
-]
-
-
-@app.on_event("startup")
-def load_sample_data():
-    base_time = int(time.time() * 1_000_000) - (3600 * 1_000_000 * 24)
-    for i, s in enumerate(GLOBAL_SAMPLES):
-        r = BXPReading(
-            deviceUuid=f"00000000-0000-0000-0000-{str(i+1).zfill(12)}",
-            latitude=s["lat"],
-            longitude=s["lon"],
-            timestampUs=base_time + i * 3600 * 1_000_000,
-            durationS=600,
-            agents=[
-                AgentReading(agentId="PM2_5", value=s["pm25"], unit="ug/m3"),
-                AgentReading(agentId="PM10",  value=s["pm10"], unit="ug/m3"),
-                AgentReading(agentId="NO2",   value=s["no2"],  unit="ppb"),
-                AgentReading(agentId="O3",    value=s["o3"],   unit="ppb"),
-                AgentReading(agentId="TEMP",  value=s["temp"], unit="C"),
-                AgentReading(agentId="RH",    value=s["rh"],   unit="%"),
-            ],
-            context={"location": s["city"], "country": s["country"],
-                     "nearbySource": s["source"]},
-            quality=QualityInfo(flag="VALIDATED", confidence=0.95)
-        )
-        store_reading(r)
-
-    print(f"[BXP] Loaded {len(GLOBAL_SAMPLES)} global sample readings.")
-    print("[BXP] Cities: Accra, Lagos, Delhi, Beijing, London, Sao Paulo, New York, Nairobi, Jakarta, Cairo")
-    print("[BXP] Server ready at http://localhost:8000/bxp/v2/")
-    print("[BXP] API docs at http://localhost:8000/docs")
+<footer>
+  BXP Protocol · Apache 2.0 ·
+  <a href="https://doi.org/10.5281/zenodo.18906812" target="_blank">DOI 10.5281/zenodo.18906812</a> ·
+  <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a> ·
+  <a href="mailto:bxpprotocol@proton.me">Contact</a>
+</footer>
+</body>
+</html>"""
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
