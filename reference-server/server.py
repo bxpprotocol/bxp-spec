@@ -14,14 +14,42 @@ import asyncio
 import json
 import time
 import hashlib
+import os
 from datetime import datetime, timezone
 import uvicorn
 
 # ─────────────────────────────────────────
-AQICN_TOKEN = "68fc34ffbfaf451cc4250b87158ffe04a3dc5dfd"
+AQICN_TOKEN = os.environ.get("AQICN_TOKEN", "")
 BXP_VERSION = "2.0"
 NODE_ID = "bxp-public-node-001"
 # ─────────────────────────────────────────
+
+# Agent ID normalisation: SDK uses PM2_5 / NO2 etc, server uses pm25 / no2
+AGENT_ID_MAP = {
+    "PM2_5": "pm25", "PM10": "pm10", "NO2": "no2",
+    "O3":    "o3",   "CO":   "co",   "SO2": "so2",
+}
+
+# In-memory submitted readings store  { reading_id -> record }
+submitted_readings: dict = {}
+
+
+# ─── Pydantic models for POST /bxp/v2/readings ───
+
+class AgentReading(BaseModel):
+    agentId: str
+    value:   float
+    unit:    Optional[str] = None
+
+class RawReading(BaseModel):
+    deviceUuid:  Optional[str]  = None
+    latitude:    float
+    longitude:   float
+    timestampUs: Optional[int]  = None
+    agents:      List[AgentReading] = []
+
+class SubmitReadingsRequest(BaseModel):
+    readings: List[RawReading]
 
 app = FastAPI(
     title="BXP Protocol Node",
@@ -98,9 +126,13 @@ async def fetch_city_data(city: str) -> Optional[dict]:
 
     url = f"https://api.waqi.info/feed/{city}/?token={AQICN_TOKEN}"
 
+    if not AQICN_TOKEN:
+        return None
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url)
+            resp.raise_for_status()
             data = resp.json()
 
         if data.get("status") != "ok":
@@ -191,6 +223,81 @@ async def get_default_readings():
         if data:
             results.append(data)
     return {"count": len(results), "readings": results}
+
+
+@app.post("/bxp/v2/readings")
+async def submit_readings(body: SubmitReadingsRequest):
+    """Accept BXP readings submitted by SDK clients or devices."""
+    if not body.readings:
+        raise HTTPException(status_code=400, detail="No readings provided.")
+
+    processed = []
+    for raw in body.readings:
+        # Build a normalised readings dict from the agents array
+        readings_dict: dict = {}
+        for agent in raw.agents:
+            key = AGENT_ID_MAP.get(agent.agentId.upper())
+            if key:
+                readings_dict[key] = agent.value
+
+        hri   = calculate_hri(readings_dict)
+        level = hri_level(hri)
+
+        reading_id = hashlib.sha256(
+            f"{raw.deviceUuid}{raw.timestampUs or time.time()}".encode()
+        ).hexdigest()[:16]
+
+        geohash = _encode_geohash(raw.latitude, raw.longitude)
+
+        record = {
+            "readingId":    reading_id,
+            "bxp_version":  BXP_VERSION,
+            "node_id":      NODE_ID,
+            "deviceUuid":   raw.deviceUuid,
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
+            "timestampUs":  raw.timestampUs or int(time.time() * 1_000_000),
+            "location": {
+                "latitude":  raw.latitude,
+                "longitude": raw.longitude,
+                "geohash":   geohash,
+            },
+            "geohash":      geohash,
+            "readings":     readings_dict,
+            "agents":       [a.model_dump() for a in raw.agents],
+            "bxpHri":       hri,
+            "bxpHriLevel":  level,
+            "qualityFlag":  "UNVALIDATED",
+        }
+        submitted_readings[reading_id] = record
+        processed.append(record)
+
+    return {
+        "status": "ok",
+        "data":   {"readings": processed},
+    }
+
+
+def _encode_geohash(lat: float, lon: float, precision: int = 7) -> str:
+    """Minimal geohash encoder (base32)."""
+    BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
+    lat_r, lon_r = [-90.0, 90.0], [-180.0, 180.0]
+    bits = [16, 8, 4, 2, 1]
+    bi, even, result, ch = 0, True, "", 0
+    while len(result) < precision:
+        if even:
+            mid = (lon_r[0] + lon_r[1]) / 2
+            if lon >= mid: ch |= bits[bi]; lon_r[0] = mid
+            else:          lon_r[1] = mid
+        else:
+            mid = (lat_r[0] + lat_r[1]) / 2
+            if lat >= mid: ch |= bits[bi]; lat_r[0] = mid
+            else:          lat_r[1] = mid
+        even = not even
+        bi += 1
+        if bi == 5:
+            result += BASE32[ch]; ch = 0; bi = 0
+    return result
+
 
 @app.get("/dashboard/{city}", response_class=HTMLResponse)
 async def dashboard(city: str):
@@ -672,4 +779,4 @@ footer a:hover{color:var(--accent)}
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=5000, reload=False)
