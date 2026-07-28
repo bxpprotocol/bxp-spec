@@ -213,6 +213,60 @@ def calculate_risk(
     }
 
 
+def _assess_quality(
+    agents: list,
+    timestamp_us: int,
+    lat: Optional[float],
+    lon: Optional[float]
+) -> tuple:
+    """
+    Run automated QC on a set of agents and return
+    (flag, confidence, notes_list).
+
+    Rules:
+      INVALID  — no agents, or critical field missing
+      SUSPECT  — any agent value exceeds 5× WHO threshold (implausible spike)
+                 or timestamp is in the future
+      VALIDATED— all agents within WHO limits (clean air reading)
+      UNVALIDATED — submitted, basic checks passed, not cross-validated
+    """
+    notes = []
+    now_us = int(time.time() * 1_000_000)
+
+    if not agents:
+        return "INVALID", 0.0, ["No agents present"]
+
+    # Timestamp checks
+    if timestamp_us > now_us + 3_600_000_000:        # >1h in future
+        notes.append("Timestamp is in the future")
+        return "SUSPECT", 0.3, notes
+
+    # Per-agent plausibility
+    any_exceeds_who = False
+    critical_spike  = False
+    for a in agents:
+        aid = a.get("agentId", "")
+        val = a.get("value")
+        if val is None:
+            continue
+        val = float(val)
+        thr = WHO_THRESHOLDS.get(aid)
+        if thr is None:
+            continue
+        if val > thr:
+            any_exceeds_who = True
+        if val > thr * 5:                             # 5× threshold = implausible
+            critical_spike = True
+            notes.append(f"{aid} value {val} exceeds 5× WHO threshold ({thr})")
+
+    if critical_spike:
+        return "SUSPECT", 0.4, notes
+
+    confidence = 0.75 if any_exceeds_who else 0.9
+    flag = "UNVALIDATED"   # cross-validation requires server-side federation
+    return flag, confidence, notes
+
+
 def write_bxp(
     path: Union[str, Path],
     data: dict,
@@ -277,6 +331,11 @@ def write_bxp(
     # Calculate HRI
     hri = calculate_risk(agents=agents)
 
+    # Basic automated QC
+    quality_flag, quality_confidence, qc_notes = _assess_quality(
+        agents, data.get("timestampUs", now_us), lat, lon
+    )
+
     record = {
         "bxpVersion":    BXP_VERSION,
         "deviceUuid":    dev_uuid,
@@ -289,9 +348,10 @@ def write_bxp(
         "agents":        agents,
         "context":       data.get("context"),
         "quality": {
-            "flag":       "UNVALIDATED",
-            "confidence": 0.8,
-            "qcMethod":   "client-generated"
+            "flag":       quality_flag,
+            "confidence": quality_confidence,
+            "qcMethod":   "bxp-sdk-auto",
+            "notes":      qc_notes if qc_notes else None,
         },
         "bxpHri":      hri["score"],
         "bxpHriLevel": hri["level"],

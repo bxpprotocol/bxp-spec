@@ -65,10 +65,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory cache
+# Server start time for uptime tracking
+SERVER_START_TIME = time.time()
+
+# In-memory cache for AQICN city data
 cache = {}
 cache_timestamps = {}
 CACHE_TTL = 600  # 10 minutes
+
+# In-memory submitted readings store
+submitted_readings: dict = {}          # reading_id -> record
+geohash_index: dict = {}               # geohash_prefix -> [reading_id, ...]
 
 WHO_THRESHOLDS = {
     "pm25": 15.0, "pm10": 45.0, "no2": 25.0,
@@ -105,6 +112,46 @@ def hri_color(hri: float) -> str:
     if hri <= 75: return "#F44336"
     if hri <= 90: return "#9C27B0"
     return "#4A0000"
+
+def assess_quality(agents_dict: dict, timestamp_us: int) -> dict:
+    """
+    Automated QC on a submitted reading.
+    Returns quality dict with flag, confidence, qcMethod, notes.
+    """
+    notes = []
+    now_us = int(time.time() * 1_000_000)
+
+    if not agents_dict:
+        return {"flag": "INVALID", "confidence": 0.0,
+                "qcMethod": "server-auto", "notes": ["No agents present"]}
+
+    if timestamp_us > now_us + 3_600_000_000:
+        notes.append("Timestamp is in the future")
+        return {"flag": "SUSPECT", "confidence": 0.3,
+                "qcMethod": "server-auto", "notes": notes}
+
+    any_exceeds = False
+    critical    = False
+    for key, val in agents_dict.items():
+        if val is None:
+            continue
+        thr = WHO_THRESHOLDS.get(key)
+        if thr is None:
+            continue
+        if float(val) > thr:
+            any_exceeds = True
+        if float(val) > thr * 5:
+            critical = True
+            notes.append(f"{key} = {val} exceeds 5× WHO threshold ({thr})")
+
+    if critical:
+        return {"flag": "SUSPECT", "confidence": 0.4,
+                "qcMethod": "server-auto", "notes": notes}
+
+    confidence = 0.75 if any_exceeds else 0.90
+    return {"flag": "UNVALIDATED", "confidence": confidence,
+            "qcMethod": "server-auto", "notes": notes or None}
+
 
 def hri_advice(level: str) -> str:
     advice = {
@@ -196,25 +243,91 @@ async def root():
 
 @app.get("/bxp/v2/health")
 async def health():
+    uptime_s = int(time.time() - SERVER_START_TIME)
+    h, r = divmod(uptime_s, 3600)
+    m, s = divmod(r, 60)
     return {
-        "status": "operational",
-        "node_id": NODE_ID,
-        "bxp_version": BXP_VERSION,
+        "status": "ok",
+        "bxpVersion": BXP_VERSION,
+        "nodeId": NODE_ID,
+        "nodeType": "reference",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "cached_locations": len(cache),
+        "uptime": f"{h}h {m}m {s}s",
+        "readingCount": len(submitted_readings),
+        "cachedLocations": len(cache),
+        "data": {
+            "bxpVersion": BXP_VERSION,
+            "nodeType": "reference",
+            "readingCount": len(submitted_readings),
+            "uptime": f"{h}h {m}m {s}s",
+        },
         "spec": "https://github.com/bxpprotocol/bxp-spec",
         "doi": "https://doi.org/10.5281/zenodo.18906812"
     }
 
-@app.get("/bxp/v2/readings/{city}")
+@app.get("/bxp/v2/city/{city}")
 async def get_city(city: str):
+    """Get live BXP reading for a city by name (via AQICN)."""
     data = await fetch_city_data(city)
     if not data:
         raise HTTPException(status_code=404, detail=f"No data found for '{city}'. Try a different city name.")
     return data
 
 @app.get("/bxp/v2/readings")
-async def get_default_readings():
+async def get_readings(
+    geohash: Optional[str] = None,
+    from_ts: Optional[int] = None,
+    to_ts:   Optional[int] = None,
+    agent:   Optional[str] = None,
+    quality: Optional[str] = None,
+    limit:   int = 50,
+):
+    """
+    List readings. Query params:
+      geohash  — filter by geohash prefix (min 5 chars)
+      from_ts  — start timestamp (Unix microseconds)
+      to_ts    — end timestamp (Unix microseconds)
+      agent    — filter to readings that contain this agentId
+      quality  — VALIDATED | UNVALIDATED | SUSPECT | INVALID
+      limit    — max results (default 50, max 200)
+    When no filters given, returns live data for 10 global cities.
+    """
+    limit = min(limit, 200)
+
+    # If query filters given, search submitted readings
+    if any([geohash, from_ts, to_ts, agent, quality]):
+        results = []
+        for rec in submitted_readings.values():
+            # geohash prefix match
+            if geohash and not rec.get("geohash", "").startswith(geohash):
+                continue
+            # timestamp range
+            ts = rec.get("timestampUs", 0)
+            if from_ts and ts < from_ts:
+                continue
+            if to_ts and ts > to_ts:
+                continue
+            # agent presence
+            if agent:
+                agent_ids = {a.get("agentId", "").upper()
+                             for a in rec.get("agents", [])}
+                if agent.upper() not in agent_ids:
+                    continue
+            # quality flag
+            if quality:
+                rec_q = rec.get("quality", {}).get("flag", "")
+                if rec_q.upper() != quality.upper():
+                    continue
+            results.append(rec)
+            if len(results) >= limit:
+                break
+        return {
+            "status": "ok",
+            "count": len(results),
+            "data": {"readings": results},
+        }
+
+    # Default: live city data
     cities = ["accra", "lagos", "delhi", "beijing", "london",
               "sao paulo", "new york", "nairobi", "jakarta", "cairo"]
     results = []
@@ -222,7 +335,20 @@ async def get_default_readings():
         data = await fetch_city_data(city)
         if data:
             results.append(data)
-    return {"count": len(results), "readings": results}
+    return {"status": "ok", "count": len(results),
+            "data": {"readings": results}}
+
+
+@app.get("/bxp/v2/readings/{reading_id}")
+async def get_reading_by_id(reading_id: str):
+    """Get a single reading by its ID."""
+    rec = submitted_readings.get(reading_id)
+    if not rec:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reading '{reading_id}' not found."
+        )
+    return {"status": "ok", "data": {"reading": rec}}
 
 
 @app.post("/bxp/v2/readings")
@@ -243,38 +369,103 @@ async def submit_readings(body: SubmitReadingsRequest):
         hri   = calculate_hri(readings_dict)
         level = hri_level(hri)
 
+        ts_us = raw.timestampUs or int(time.time() * 1_000_000)
+
         reading_id = hashlib.sha256(
-            f"{raw.deviceUuid}{raw.timestampUs or time.time()}".encode()
+            f"{raw.deviceUuid}{ts_us}".encode()
         ).hexdigest()[:16]
 
         geohash = _encode_geohash(raw.latitude, raw.longitude)
 
+        quality = assess_quality(readings_dict, ts_us)
+
         record = {
             "readingId":    reading_id,
-            "bxp_version":  BXP_VERSION,
-            "node_id":      NODE_ID,
+            "bxpVersion":   BXP_VERSION,
+            "nodeId":       NODE_ID,
             "deviceUuid":   raw.deviceUuid,
             "timestamp":    datetime.now(timezone.utc).isoformat(),
-            "timestampUs":  raw.timestampUs or int(time.time() * 1_000_000),
+            "timestampUs":  ts_us,
             "location": {
                 "latitude":  raw.latitude,
                 "longitude": raw.longitude,
                 "geohash":   geohash,
             },
             "geohash":      geohash,
+            "latitude":     raw.latitude,
+            "longitude":    raw.longitude,
             "readings":     readings_dict,
             "agents":       [a.model_dump() for a in raw.agents],
             "bxpHri":       hri,
             "bxpHriLevel":  level,
-            "qualityFlag":  "UNVALIDATED",
+            "quality":      quality,
+            "qualityFlag":  quality["flag"],
         }
         submitted_readings[reading_id] = record
+
+        # Index by geohash prefix (precision 5, 6, 7)
+        for prec in (5, 6, 7):
+            prefix = geohash[:prec]
+            geohash_index.setdefault(prefix, [])
+            if reading_id not in geohash_index[prefix]:
+                geohash_index[prefix].append(reading_id)
+
         processed.append(record)
 
     return {
         "status": "ok",
         "data":   {"readings": processed},
     }
+
+
+@app.get("/bxp/v2/locations/{geohash}/latest")
+async def get_location_latest(geohash: str):
+    """Get the most recent submitted reading for a geohash location."""
+    if len(geohash) < 5:
+        raise HTTPException(status_code=400,
+                            detail="Geohash precision must be at least 5.")
+    prefix = geohash[:7]
+    ids = []
+    for prec in (7, 6, 5):
+        ids = geohash_index.get(geohash[:prec], [])
+        if ids:
+            break
+    if not ids:
+        raise HTTPException(status_code=404,
+                            detail=f"No readings found for geohash '{geohash}'.")
+    # Most recent by timestampUs
+    best = max(
+        (submitted_readings[rid] for rid in ids if rid in submitted_readings),
+        key=lambda r: r.get("timestampUs", 0),
+        default=None
+    )
+    if not best:
+        raise HTTPException(status_code=404, detail="No readings found.")
+    return {"status": "ok", "data": {"reading": best, "bxpHri": best["bxpHri"]}}
+
+
+@app.get("/bxp/v2/locations/{geohash}/history")
+async def get_location_history(geohash: str, limit: int = 50):
+    """Get historical readings for a geohash location."""
+    if len(geohash) < 5:
+        raise HTTPException(status_code=400,
+                            detail="Geohash precision must be at least 5.")
+    limit = min(limit, 200)
+    ids = []
+    for prec in (7, 6, 5):
+        ids = geohash_index.get(geohash[:prec], [])
+        if ids:
+            break
+    if not ids:
+        raise HTTPException(status_code=404,
+                            detail=f"No readings found for geohash '{geohash}'.")
+    records = sorted(
+        (submitted_readings[rid] for rid in ids if rid in submitted_readings),
+        key=lambda r: r.get("timestampUs", 0),
+        reverse=True
+    )[:limit]
+    return {"status": "ok", "count": len(records),
+            "data": {"readings": records}}
 
 
 def _encode_geohash(lat: float, lon: float, precision: int = 7) -> str:
@@ -490,7 +681,7 @@ footer{{
   <span class="logo">BXP NODE</span>
   <nav>
     <a href="/dashboard">🔍 Search</a>
-    <a href="/bxp/v2/readings/{query}">JSON</a>
+    <a href="/bxp/v2/city/{query}">JSON</a>
     <a href="/bxp/v2/health">Status</a>
     <a href="https://github.com/bxpprotocol/bxp-spec" target="_blank">GitHub</a>
   </nav>
