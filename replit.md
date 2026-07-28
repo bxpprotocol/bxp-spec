@@ -1,102 +1,105 @@
-# BXP Protocol Reference Node
+# BXP — Breathe Exposure Protocol
 
-**Open universal standard for atmospheric exposure data.**
-BXP is to air quality data what MP4 is to video — a universal format any system can read, write, and exchange.
+## Project Overview
 
-## Project overview
+**BXP** is an open universal standard for atmospheric exposure data — the "MP4 for air quality."
+It defines a complete protocol stack: file format, REST API, health risk index (BXP_HRI),
+privacy framework, and federated node architecture. Apache 2.0. Free forever.
 
-| Component | Location | Description |
-|---|---|---|
-| Reference server | `reference-server/server.py` | FastAPI node — the core of BXP |
-| Database layer | `reference-server/database.py` | SQLite persistence via `bxp_data.db` |
-| Python SDK | `sdk/python/bxp_sdk.py` | Sync + async client, file I/O, HRI calc |
-| TypeScript SDK | `sdk/typescript/bxp-sdk.ts` | Full-feature TS/JS SDK |
-| CLI | `cli/bxp_cli.py` | `bxp` command-line tool |
-| MQTT bridge | `integrations/mqtt_bridge.py` | Subscribe → submit to BXP node |
-| Tests | `reference-server/tests/` | pytest suite |
-| Postman collection | `postman/BXP_Protocol.postman_collection.json` | Importable API collection |
-| Docker | `Dockerfile`, `docker-compose.yml` | One-command node deployment |
+- **GitHub:** https://github.com/bxpprotocol/bxp-spec
+- **Spec DOI:** https://doi.org/10.5281/zenodo.18906812
+- **Implementation DOI:** https://doi.org/10.5281/zenodo.18907003
+- **ORCID:** https://orcid.org/0009-0001-4856-4986
 
-## How to run
+## Running the Server
 
 ```bash
 cd reference-server
-pip install -r requirements.txt
 python server.py
 ```
 
-Server starts at **http://localhost:5000**
+Server runs at `http://0.0.0.0:5000` (port 5000). The Replit workflow "Start application" handles this automatically.
 
-- Landing page: `/`
-- Dashboard: `/dashboard`
-- Global map: `/map`
-- City comparison: `/compare`
-- Interactive API docs: `/docs`
-- Prometheus metrics: `/metrics`
+## Environment Variables
 
-## Environment variables
-
-| Variable | Required | Description |
+| Variable | Required | Purpose |
 |---|---|---|
-| `AQICN_TOKEN` | Recommended | Free token from https://aqicn.org/api/ — enables live city data |
-| `BXP_NODE_ID` | Optional | Node identifier (default: `bxp-public-node-001`) |
-| `BXP_NODE_TYPE` | Optional | Node type (default: `reference`) |
-| `BXP_SERVER_URL` | Optional | SDK/CLI default server (default: `http://localhost:5000`) |
-| `BXP_DEVICE_TOKEN` | Optional | SDK/CLI default device token |
+| `AQICN_TOKEN` | Optional | Live city air quality data (get free at https://aqicn.org/api/). Without it, only submitted readings are available. |
+| `BXP_NODE_ID` | Optional | Overrides default node ID (`bxp-public-node-001`) |
+| `BXP_NODE_TYPE` | Optional | Overrides node type (`reference`) |
+| `SESSION_SECRET` | Optional | Session secret for secure cookies |
 
-Set `AQICN_TOKEN` as a Replit Secret to enable live global air quality data.
-
-## Key API endpoints
+## Repository Structure
 
 ```
-GET  /bxp/v2/health                      Node health & stats
-GET  /bxp/v2/city/{city}                 Live city data (AQICN)
-POST /bxp/v2/readings                    Submit readings (returns 201)
-GET  /bxp/v2/readings                    List readings (paginated)
-GET  /bxp/v2/readings/{id}               Get reading by ID
-GET  /bxp/v2/readings/{id}/verify        Integrity check (§2.2)
-DEL  /bxp/v2/readings/{id}              Cryptographic deletion (§9)
-GET  /bxp/v2/locations/{gh}/latest       Latest reading at geohash
-GET  /bxp/v2/locations/{gh}/aggregate    k≥5 privacy aggregate (§9)
-GET  /bxp/v2/search                      Search by city or coordinates
-POST /bxp/v2/devices/register            Register device, get token
-POST /bxp/v2/community/reports           Submit community report
-GET  /bxp/v2/nodes                       Federated node list
-GET  /metrics                            Prometheus metrics
-GET  /widget/{city}                      Embeddable iframe widget
+bxp-protocol/
+├── reference-server/
+│   ├── server.py           FastAPI reference node v2.1
+│   ├── database.py         SQLite helpers (readings, devices, reports, nodes)
+│   ├── requirements.txt    fastapi, uvicorn, pydantic, httpx
+│   └── tests/
+│       └── test_server.py  Pytest test suite
+├── sdk/
+│   ├── python/
+│   │   ├── bxp_sdk.py      Python SDK v2.1 (sync + async, offline queue)
+│   │   └── pyproject.toml  pip-installable package config
+│   └── typescript/
+│       └── bxp-sdk.ts      TypeScript/Node.js SDK
+├── cli/
+│   └── bxp_cli.py          CLI tool v2.1 (generate, submit, export, map, config)
+├── spec/
+│   └── bxp-v2.0.md         Full protocol specification
+├── docs/
+│   ├── index.html          Professional landing page (GitHub Pages)
+│   └── validator.html      BXP JSON validator & playground
+├── datasets/
+│   └── sample_readings.bxp.json  10 global city readings
+├── examples/
+│   ├── example_generate.py
+│   └── example_read.py
+├── integrations/
+│   └── mqtt_bridge.py      MQTT → BXP bridge
+├── postman/
+│   └── BXP_Protocol.postman_collection.json
+├── .github/
+│   └── workflows/ci.yml    GitHub Actions CI (Python 3.10/3.11/3.12)
+├── Dockerfile
+└── docker-compose.yml
 ```
 
-## Running tests
+## Key API Endpoints
 
-```bash
-cd reference-server
-pip install pytest httpx
-python -m pytest tests/ -v
-```
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | Landing page |
+| GET | `/bxp/v2/health` | Node health + uptime |
+| GET | `/bxp/v2/city/{city}` | Live BXP data for a city (AQICN) |
+| GET | `/bxp/v2/readings` | List readings (filter by geohash, time, agent) |
+| POST | `/bxp/v2/readings` | Submit readings (returns 201) |
+| DELETE | `/bxp/v2/readings/{id}` | Delete with cryptographic proof |
+| GET | `/bxp/v2/readings/{id}/verify` | Integrity check |
+| GET | `/bxp/v2/locations/{geohash}/aggregate` | k≥5 privacy-safe aggregate |
+| GET | `/bxp/v2/search` | Search by city name or coordinates |
+| POST | `/bxp/v2/devices/register` | Register device, receive token |
+| POST | `/bxp/v2/community/reports` | Submit community air quality report |
+| GET | `/bxp/v2/nodes` | Federated node list |
+| GET | `/metrics` | Prometheus metrics |
+| GET | `/widget/{city}` | Embeddable iframe widget |
+| GET | `/dashboard` | Global dashboard (search) |
+| GET | `/dashboard/{city}` | City dashboard (map + chart + readings) |
+| GET | `/map` | Global map view |
+| GET | `/compare` | City comparison tool |
+| GET | `/docs` | Swagger UI |
 
-## CLI usage
+## GitHub Pages (docs/)
 
-```bash
-cd cli
-python bxp_cli.py generate --pm25 47.2 --lat 5.6037 --lon -0.1870
-python bxp_cli.py hri --pm25 67.0 --no2 31.0 --duration 8h --population sensitive
-python bxp_cli.py submit --file reading.bxp.json
-python bxp_cli.py batch-submit --dir ./readings/
-python bxp_cli.py export reading.bxp.json --format csv
-python bxp_cli.py map ./readings/ --output map.html
-python bxp_cli.py server-status
-python bxp_cli.py config set server http://localhost:5000
-```
+The `docs/` folder is served via GitHub Pages at https://bxpprotocol.github.io/
+- `docs/index.html` — professional protocol landing page
+- `docs/validator.html` — BXP JSON validator & playground
 
-## Docker
+## User Preferences
 
-```bash
-cp .env.example .env   # add AQICN_TOKEN
-docker-compose up -d
-```
-
-## User preferences
-
-- Keep existing project structure and stack (FastAPI + Python)
-- SQLite database at `reference-server/bxp_data.db`
-- Port 5000 for the server
+- Keep the project open source (Apache 2.0) — never commit secrets or API keys
+- AQICN_TOKEN must stay in environment variables only, never in code
+- Maintain existing project structure; do not migrate database or restructure unnecessarily
+- The server listens on port 5000 (Replit default)
