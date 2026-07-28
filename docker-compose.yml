@@ -1,0 +1,33 @@
+## BXP Protocol — Docker Compose
+## Quick start:
+##   cp .env.example .env   # add your AQICN_TOKEN
+##   docker-compose up -d
+
+version: "3.9"
+
+services:
+  bxp-node:
+    build: .
+    container_name: bxp-reference-node
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - AQICN_TOKEN=${AQICN_TOKEN:-}
+      - BXP_NODE_ID=${BXP_NODE_ID:-bxp-node-001}
+      - BXP_NODE_TYPE=reference
+    volumes:
+      - bxp_data:/app/reference-server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/bxp/v2/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bxp.rule=Host(`bxp.example.com`)"
+
+volumes:
+  bxp_data:
+    driver: local

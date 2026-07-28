@@ -1,0 +1,69 @@
+Here's everything — exhaustive, categorized, no padding:
+
+🔴 Critical / Protocol Completeness
+#	What	Why
+1	Persistent database	Every server restart wipes all submitted readings. In-memory is dev-only. Need PostgreSQL or SQLite
+2	Device token authentication	Authorization: Bearer {token} is accepted but never validated. Anyone can write to the node
+3	POST /readings returns 201 not 200	Spec says 201. Currently returns 200
+4	Duration + population factors in server HRI	Server's calculate_hri() ignores duration (1h/8h/24h) and population (general/sensitive) that the SDK supports. The two compute different scores for the same data
+5	durationS and indoorOutdoor stored but never used	Submitted readings carry these fields but the server ignores them in QC and HRI
+6	Geohash precision validation on POST	Server accepts geohash precision < 5, which the spec forbids
+🟡 Spec Sections Not Yet Implemented
+#	What	Spec Section
+7	Privacy framework — SHA-256 hashed person IDs, geohash-5 floor for personal records, k=5 aggregate minimum, cryptographic deletion	§9
+8	Federated node sync — how nodes discover each other, exchange readings, and aggregate without a central owner	Core protocol promise
+9	DELETE /readings/{id} — spec says deletion must be cryptographically verifiable	§9
+10	GET /readings/{id}/verify — integrity check endpoint using stored payloadHash	§2.2
+11	Aggregate endpoint — GET /locations/{geohash}/aggregate — min/max/avg HRI over time window, enforcing k≥5 anonymity	§9
+12	Community reports — POST /community/reports, GET /community/reports	§5
+13	Device registration — POST /devices/register, GET /devices/{uuid}	§5
+14	Search endpoint — GET /search?q=city&lat=&lon=&radius=	§5
+🟡 SDK Gaps
+#	What	Why
+15	pyproject.toml / setup.py	Can't pip install bxp-sdk right now. README says you can
+16	Async BXPClient (httpx or aiohttp)	The server is async but the SDK is sync-only. Blocks event loops if called from async code
+17	Offline queue — buffer readings locally and flush when server is back	Critical for IoT sensors with intermittent connectivity
+18	BXPClient.get_readings() / get_latest() don't handle pagination	Only returns first page silently
+19	TypeScript/JavaScript SDK	Massive gap. Any web or Node.js developer has nothing to use
+20	MicroPython stub	The protocol is aimed at IoT sensors — no embedded target exists
+🟡 Server/API Quality
+#	What	Why
+21	Rate limiting	Zero protection. Anyone can hammer the AQICN quota or flood submitted readings
+22	Structured logging	No logs for submitted readings, errors, or API usage. Impossible to debug or audit
+23	Input validation	lat/lon not range-checked (lat must be -90–90, lon -180–180). agent values not checked for negative numbers
+24	Cursor/offset pagination	GET /readings?limit=50 has no way to get page 2
+25	Background startup preload	Currently GET /readings (default) is slow first call — preload the 10 cities on server start
+26	AQICN fallback behavior	If token is missing or expired, API silently returns 404 with no explanation. Should return a clear error
+27	ETag / If-None-Match caching headers	City data is cached 10 min server-side but clients re-download every time
+🟡 Dashboard / UI
+#	What	Why
+28	Map view — plot readings geographically (Leaflet.js, free)	No spatial overview exists. Core to an air quality protocol
+29	Time series chart — HRI over time per location (Chart.js)	Can't see trends without it
+30	Multi-city comparison — side-by-side HRI for selected cities	High-value for researchers
+31	Real-time auto-refresh — poll /bxp/v2/health + current city every 60s	Dashboard shows stale data with no indicator
+32	Last-updated timestamp indicator	Users don't know how old the data is
+33	Embeddable widget — <script> tag or iframe snippet any site can drop in	Viral distribution mechanism for the protocol
+34	Export button — download current reading as .bxp.json from the dashboard	Closes the loop between UI and file format
+🟡 CLI
+#	What	Why
+35	bxp export --format csv/geojson	No way to get data out of local files in standard formats
+36	bxp batch submit — submit a directory of .bxp.json files	Common use case for sensor deployments
+37	BXP_SERVER_URL env var	Default server URL is hardcoded to localhost:8000. Should check env first
+38	bxp map — generate a self-contained HTML map from a folder of readings	Turns the CLI into a visualization tool
+39	Config file (~/.bxp/config.json) — store default server, device UUID, token	Quality-of-life for repeat users
+🟢 Ecosystem / Integrations
+#	What	Why
+40	MQTT bridge — subscribe to a topic, auto-convert to BXP, submit to node	Standard IoT protocol. Most air sensors speak MQTT
+41	Home Assistant integration	Home Assistant has 700k+ users with air quality sensors. Single integration = massive adoption
+42	Node-RED node	Popular in industrial/maker IoT deployments
+43	OpenAPI client codegen	FastAPI already generates an OpenAPI spec at /docs — auto-generate clients for Go, Rust, Java
+44	Postman / Bruno collection	Importable collection so anyone can test the API in 30 seconds
+45	npm package (bxp-sdk)	Publish the JS SDK once written
+🟢 Production Hardening
+#	What	Why
+46	Docker + docker-compose	Anyone running their own node needs a one-command setup
+47	/metrics endpoint (Prometheus format)	Node operators need to monitor reading rates, error rates, cache hits
+48	Database migration system (Alembic if Postgres)	Schema changes will break production nodes that upgrade
+49	Automated tests CI	Nothing runs on push right now
+50	CONTRIBUTING.md	The protocol is open — make it easy for others to submit implementations
+That's 50 items. Want to pick a tier and I'll execute the whole tier at once?
