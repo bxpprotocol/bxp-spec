@@ -30,18 +30,26 @@ Improvements over v2.0:
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ValidationError as PydanticValidationError
 from typing import Optional, List
 import httpx
 import asyncio
 import json
+import sys
 import time
 import hashlib
 import uuid
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 import uvicorn
+
+# Binary .bxp container support (spec §5.1-5.2) — sibling SDK module.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk" / "python"))
+from bxp_binary import (
+    encode_bxp_binary, decode_bxp_binary, BXPBinaryError,
+)
 
 from database import (
     init_db, insert_reading, get_reading, delete_reading, verify_reading,
@@ -190,6 +198,59 @@ def _client_ip(request: Request) -> str:
     if fwd:
         return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+# ─── Binary .bxp container helpers (spec §5.1-5.2) ────────────
+
+def _binary_response(record: dict, file_type: str = "reading", compress: bool = False) -> Response:
+    """Wrap a dict as a binary .bxp container and return it as an HTTP response."""
+    raw = encode_bxp_binary(record, file_type=file_type, compress=compress)
+    return Response(
+        content=raw,
+        media_type="application/octet-stream",
+        headers={"X-BXP-Format": "binary"},
+    )
+
+
+def _is_binary_bxp_body(raw: bytes) -> bool:
+    """Detect a binary .bxp container by its magic number (0x42585000, 'BXP\\0')."""
+    return len(raw) >= 4 and raw[:4] == b"\x42\x58\x50\x00"
+
+
+async def _parse_submit_body(request: Request) -> "SubmitReadingsRequest":
+    """
+    Parse a POST /bxp/v2/readings body as either JSON (spec §2 REST API) or
+    a binary `.bxp` container (spec §5.1/5.2), auto-detected by magic number
+    rather than trusting Content-Type — devices don't always set it right.
+
+    A binary body may be either a single reading record (as write_bxp_binary
+    produces) or a container-shaped dict with a "readings" list; both are
+    normalized into a SubmitReadingsRequest.
+    """
+    raw = await request.body()
+
+    if _is_binary_bxp_body(raw):
+        try:
+            decoded = decode_bxp_binary(raw)
+        except BXPBinaryError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid binary .bxp container: {e}")
+        record = decoded["record"]
+        readings = record["readings"] if isinstance(record.get("readings"), list) else [record]
+        try:
+            return SubmitReadingsRequest.model_validate({"readings": readings})
+        except PydanticValidationError as e:
+            raise HTTPException(status_code=422, detail=json.loads(e.json()))
+
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail=f"Body is neither valid JSON nor a binary .bxp container: {e}")
+    # 422, not 400, to match FastAPI's normal request-validation status code
+    # for a well-formed-but-invalid JSON body (spec-level field errors).
+    try:
+        return SubmitReadingsRequest.model_validate(payload)
+    except PydanticValidationError as e:
+        raise HTTPException(status_code=422, detail=json.loads(e.json()))
 
 
 # ─── HRI calculation ──────────────────────────────────────────
@@ -526,10 +587,15 @@ async def get_readings(
     quality:  Optional[str] = None,
     limit:    int = 50,
     offset:   int = 0,
+    format:   Optional[str] = None,
+    compress: bool = False,
 ):
     """
     List readings with cursor/offset pagination.
     When no filters given, returns live data for default cities.
+
+    format=binary returns a single binary `.bxp` container (spec §5.1/5.4,
+    fileType="aggregate") wrapping {"readings": [...]} instead of JSON.
     """
     limit = min(limit, 200)
 
@@ -539,6 +605,11 @@ async def get_readings(
             agent=agent, quality=quality,
             limit=limit, offset=offset,
         )
+        if format == "binary":
+            return _binary_response(
+                {"readings": results, "total": total, "offset": offset, "limit": limit},
+                file_type="aggregate", compress=compress,
+            )
         return {
             "status": "ok",
             "count":  len(results),
@@ -565,30 +636,41 @@ async def get_readings(
                       "Set this environment variable to see live global data.",
         }
 
+    if format == "binary":
+        return _binary_response({"readings": results}, file_type="aggregate", compress=compress)
+
     return {"status": "ok", "count": len(results),
             "data": {"readings": results}}
 
 
 @app.get("/bxp/v2/readings/{reading_id}")
-async def get_reading_by_id(reading_id: str):
+async def get_reading_by_id(reading_id: str, format: Optional[str] = None, compress: bool = False):
+    """format=binary returns the reading as a binary `.bxp` container (fileType="reading")."""
     rec = get_reading(reading_id)
     if not rec:
         raise HTTPException(status_code=404,
                             detail=f"Reading '{reading_id}' not found.")
+    if format == "binary":
+        return _binary_response(rec, file_type="reading", compress=compress)
     return {"status": "ok", "data": {"reading": rec}}
 
 
 @app.post("/bxp/v2/readings", status_code=201)
 async def submit_readings(
-    body: SubmitReadingsRequest,
     request: Request,
     authorization: Optional[str] = Header(None),
 ):
-    """Accept BXP readings submitted by SDK clients or devices. Returns 201."""
+    """
+    Accept BXP readings submitted by SDK clients or devices. Returns 201.
+    Accepts either a JSON body (spec §2) or a binary `.bxp` container
+    (spec §5.1/5.2), auto-detected by magic number.
+    """
     ip = _client_ip(request)
     if not await _rl_submit.check(ip):
         raise HTTPException(status_code=429,
                             detail="Rate limit exceeded — 30 submissions/minute")
+
+    body = await _parse_submit_body(request)
 
     if not body.readings:
         raise HTTPException(status_code=400, detail="No readings provided.")

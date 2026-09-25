@@ -34,6 +34,7 @@ Usage:
 """
 
 import json
+import sys
 import uuid
 import time
 import hashlib
@@ -41,6 +42,10 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
+
+# Ensure bxp_binary.py (sibling module, same dir) is importable regardless
+# of the caller's cwd or sys.path — needed by write_bxp_binary/read_bxp_binary.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
     import urllib.request
@@ -75,23 +80,28 @@ HRI_WEIGHTS = {
     "TVOC": 0.04,  "BENZ": 0.02, "FORM": 0.02,
 }
 
+# Upper bound of each band. Bands are contiguous (no gaps): a score falls
+# into the first band whose upper bound is >= score. Do not leave gaps
+# between bands (e.g. 20/21, 40/41) — any score landing in a gap silently
+# fell through to the CLEAN default, which is exactly the kind of bug this
+# must not reintroduce.
 RISK_LEVELS = [
-    (0,  20,  "CLEAN",     "#00C851",
+    (20,  "CLEAN",     "#00C851",
      "No health risk.",
      "Enjoy outdoor activities freely."),
-    (21, 40,  "MODERATE",  "#FFBB33",
+    (40,  "MODERATE",  "#FFBB33",
      "Acceptable for most.",
      "Sensitive groups: limit prolonged heavy exertion outdoors."),
-    (41, 60,  "ELEVATED",  "#FF8800",
+    (60,  "ELEVATED",  "#FF8800",
      "Reduce heavy outdoor exertion.",
      "Sensitive groups: avoid outdoor exertion."),
-    (61, 75,  "HIGH",      "#CC0000",
+    (75,  "HIGH",      "#CC0000",
      "Wear N95 outdoors. Close windows.",
      "Sensitive groups: stay indoors. Use air purifier."),
-    (76, 90,  "VERY_HIGH", "#9B0000",
+    (90,  "VERY_HIGH", "#9B0000",
      "Avoid all outdoor activity. N95 mandatory if outside.",
      "Everyone: stay indoors. Seek medical help if symptomatic."),
-    (91, 100, "HAZARDOUS", "#4A0000",
+    (100, "HAZARDOUS", "#4A0000",
      "Emergency. Stay indoors. Evacuate if possible.",
      "Everyone: evacuate to cleaner air. Seek medical attention."),
 ]
@@ -205,9 +215,9 @@ def calculate_risk(
         }
 
     score = round(min(100.0, raw * 100 * d_factor * v_factor), 2)
-    level = color = advice = sadv = "CLEAN"
-    for lo, hi, ln, lc, la, lsa in RISK_LEVELS:
-        if lo <= score <= hi:
+    level, color, advice, sadv = RISK_LEVELS[-1][1:]
+    for hi, ln, lc, la, lsa in RISK_LEVELS:
+        if score <= hi:
             level, color, advice, sadv = ln, lc, la, lsa
             break
 
@@ -267,25 +277,15 @@ def _assess_quality(
     return flag, confidence, notes
 
 
-def write_bxp(
-    path: Union[str, Path],
-    data: dict,
-    device_uuid: Optional[str] = None
-) -> dict:
+def _build_bxp_record(data: dict, device_uuid: Optional[str] = None) -> dict:
     """
-    Write a .bxp.json file.
+    Shared record-construction logic used by both write_bxp() (JSON) and
+    write_bxp_binary() (binary container), so the two representations stay
+    semantically identical per spec §5.1 ("Any BXP implementation MUST
+    support both and MUST be capable of lossless conversion between them").
 
-    Args:
-        path: File path to write (e.g. "reading.bxp.json")
-        data: Dict with reading data. Supported keys:
-              latitude, longitude, geohash, timestampUs,
-              agents (list), pm25, pm10, no2, o3, co, so2,
-              temp, humidity, pressure, tvoc,
-              durationS, indoorOutdoor, context
-        device_uuid: Optional device UUID (auto-generated if not given)
-
-    Returns:
-        The complete BXP record dict
+    Returns the complete record dict, including payloadHash, but does not
+    write anything to disk.
     """
     dev_uuid = device_uuid or str(uuid.uuid4())
     now_us   = int(time.time() * 1_000_000)
@@ -371,10 +371,97 @@ def write_bxp(
         payload_str.encode()
     ).hexdigest()
 
+    return record
+
+
+def write_bxp(
+    path: Union[str, Path],
+    data: dict,
+    device_uuid: Optional[str] = None
+) -> dict:
+    """
+    Write a .bxp.json file.
+
+    Args:
+        path: File path to write (e.g. "reading.bxp.json")
+        data: Dict with reading data. Supported keys:
+              latitude, longitude, geohash, timestampUs,
+              agents (list), pm25, pm10, no2, o3, co, so2,
+              temp, humidity, pressure, tvoc,
+              durationS, indoorOutdoor, context
+        device_uuid: Optional device UUID (auto-generated if not given)
+
+    Returns:
+        The complete BXP record dict
+    """
+    record = _build_bxp_record(data, device_uuid)
     Path(path).write_text(
         json.dumps(record, indent=2, default=str),
         encoding="utf-8"
     )
+    return record
+
+
+def write_bxp_binary(
+    path: Union[str, Path],
+    data: dict,
+    device_uuid: Optional[str] = None,
+    file_type: str = "reading",
+    compress: bool = False,
+) -> dict:
+    """
+    Write a binary `.bxp` container file (spec §5.1/5.2) — the compact,
+    device-oriented counterpart to write_bxp()'s `.bxp.json`. Builds the
+    exact same record (same validation, same HRI calculation, same
+    payloadHash) as write_bxp(), then encodes it with the 32-byte binary
+    header instead of writing plain JSON.
+
+    Args:
+        path: File path to write (e.g. "reading.bxp")
+        data: Same fields as write_bxp()
+        device_uuid: Optional device UUID (auto-generated if not given)
+        file_type: One of "reading", "aggregate", "agent", "device",
+                   "alert", "meta" (default "reading")
+        compress: If True, gzip-compress the payload (sets header flag bit0)
+
+    Returns:
+        The complete BXP record dict (same shape as write_bxp() returns)
+    """
+    from bxp_binary import encode_bxp_binary
+    record = _build_bxp_record(data, device_uuid)
+    raw = encode_bxp_binary(record, file_type=file_type, compress=compress)
+    Path(path).write_bytes(raw)
+    return record
+
+
+def read_bxp_binary(path: Union[str, Path]) -> dict:
+    """
+    Read and parse a binary `.bxp` container file. Verifies the header and
+    payload CRC32 checksums (raises BXPBinaryError on mismatch) and, like
+    read_bxp(), recalculates HRI from the agents present so callers can spot
+    a stale or tampered bxpHri field.
+
+    Returns:
+        Parsed BXP record dict with the same _integrityOk / _filePath /
+        _readAt / _hriRecalculated fields read_bxp() adds, plus a
+        "_binaryHeader" dict with the decoded 32-byte header metadata.
+    """
+    from bxp_binary import decode_bxp_binary
+    raw = Path(path).read_bytes()
+    decoded = decode_bxp_binary(raw)
+    record = decoded["record"]
+
+    record["_integrityOk"] = (
+        decoded["headerChecksumOk"] and decoded["payloadChecksumOk"]
+    )
+    record["_filePath"] = str(path)
+    record["_readAt"] = datetime.now(timezone.utc).isoformat()
+    record["_binaryHeader"] = decoded["header"]
+
+    agents = record.get("agents", [])
+    if agents:
+        record["_hriRecalculated"] = calculate_risk(agents=agents)
+
     return record
 
 
@@ -406,22 +493,17 @@ def read_bxp(path: Union[str, Path]) -> dict:
     return record
 
 
-def validate_bxp(path: Union[str, Path]) -> dict:
+def validate_bxp_record(record: dict) -> dict:
     """
-    Validate a .bxp.json file against the BXP v2.0 spec.
+    Validate an already-parsed BXP record dict against the BXP v2.0 spec.
+    This is the shared core used by both validate_bxp() (.bxp.json on disk)
+    and validate_bxp_binary() (binary .bxp on disk) — a record is a record
+    regardless of which container it came out of.
 
-    Returns dict with: valid, errors, warnings, summary
+    Returns dict with: valid, errors, warnings, summary, record
     """
     errors   = []
     warnings = []
-
-    try:
-        record = json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception as e:
-        return {
-            "valid": False, "errors": [f"Cannot parse file: {e}"],
-            "warnings": [], "summary": "INVALID — Cannot parse JSON"
-        }
 
     for field in ["bxpVersion", "deviceUuid", "geohash", "timestampUs", "agents"]:
         if field not in record or record[field] is None:
@@ -483,6 +565,43 @@ def validate_bxp(path: Union[str, Path]) -> dict:
 
     return {"valid": valid, "errors": errors, "warnings": warnings,
             "summary": summary, "record": record}
+
+
+def validate_bxp(path: Union[str, Path]) -> dict:
+    """
+    Validate a .bxp.json file against the BXP v2.0 spec.
+
+    Returns dict with: valid, errors, warnings, summary
+    """
+    try:
+        record = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception as e:
+        return {
+            "valid": False, "errors": [f"Cannot parse file: {e}"],
+            "warnings": [], "summary": "INVALID — Cannot parse JSON"
+        }
+    return validate_bxp_record(record)
+
+
+def validate_bxp_binary(path: Union[str, Path]) -> dict:
+    """
+    Validate a binary `.bxp` container file: verifies the 32-byte header
+    and CRC32 checksums first (spec §5.2), then runs the same field-level
+    validation validate_bxp() runs against the decoded record.
+
+    Returns dict with: valid, errors, warnings, summary, record
+    """
+    from bxp_binary import decode_bxp_binary, BXPBinaryError
+    try:
+        decoded = decode_bxp_binary(Path(path).read_bytes())
+    except BXPBinaryError as e:
+        return {
+            "valid": False, "errors": [f"Binary container error: {e}"],
+            "warnings": [], "summary": "INVALID — Corrupt .bxp binary container"
+        }
+    result = validate_bxp_record(decoded["record"])
+    result["binaryHeader"] = decoded["header"]
+    return result
 
 
 # ─────────────────────────────────────────────────────────────

@@ -123,13 +123,17 @@ export const HRI_WEIGHTS: Record<string, number> = {
   TVOC: 0.04,  BENZ: 0.02, FORM: 0.02,
 };
 
-const RISK_LEVELS: Array<[number, number, string, string, string, string]> = [
-  [0,  20,  'CLEAN',     '#00C851', 'No health risk.',           'Enjoy outdoor activities freely.'],
-  [21, 40,  'MODERATE',  '#FFBB33', 'Acceptable for most.',      'Sensitive groups: limit prolonged exertion.'],
-  [41, 60,  'ELEVATED',  '#FF8800', 'Reduce outdoor exertion.',  'Sensitive groups: avoid outdoor exertion.'],
-  [61, 75,  'HIGH',      '#CC0000', 'Wear N95 outdoors.',        'Sensitive groups: stay indoors.'],
-  [76, 90,  'VERY_HIGH', '#9B0000', 'Avoid all outdoor activity.', 'Everyone: stay indoors.'],
-  [91, 100, 'HAZARDOUS', '#4A0000', 'Emergency. Stay indoors.',  'Evacuate to cleaner air.'],
+// Upper bound of each band. Bands are contiguous (no gaps): a score falls
+// into the first band whose upper bound is >= score. Do not leave gaps
+// between bands (e.g. 20/21, 40/41) — any score landing in a gap used to
+// silently fall through to the CLEAN default. See bxp_sdk.py for the same fix.
+const RISK_LEVELS: Array<[number, string, string, string, string]> = [
+  [20,  'CLEAN',     '#00C851', 'No health risk.',           'Enjoy outdoor activities freely.'],
+  [40,  'MODERATE',  '#FFBB33', 'Acceptable for most.',      'Sensitive groups: limit prolonged exertion.'],
+  [60,  'ELEVATED',  '#FF8800', 'Reduce outdoor exertion.',  'Sensitive groups: avoid outdoor exertion.'],
+  [75,  'HIGH',      '#CC0000', 'Wear N95 outdoors.',        'Sensitive groups: stay indoors.'],
+  [90,  'VERY_HIGH', '#9B0000', 'Avoid all outdoor activity.', 'Everyone: stay indoors.'],
+  [100, 'HAZARDOUS', '#4A0000', 'Emergency. Stay indoors.',  'Evacuate to cleaner air.'],
 ];
 
 const AGENT_UNITS: Record<string, string> = {
@@ -219,9 +223,10 @@ export function calculateRisk(opts: CalculateRiskOptions): HriResult {
   }
 
   const score  = Math.round(Math.min(100, raw * 100 * dFactor * vFactor) * 100) / 100;
-  let level = 'CLEAN', color = '#00C851', advice = 'No health risk.', sadv = 'Enjoy outdoor activities freely.';
-  for (const [lo, hi, ln, lc, la, lsa] of RISK_LEVELS) {
-    if (score >= lo && score <= hi) {
+  const fallback = RISK_LEVELS[RISK_LEVELS.length - 1];
+  let [, level, color, advice, sadv] = fallback;
+  for (const [hi, ln, lc, la, lsa] of RISK_LEVELS) {
+    if (score <= hi) {
       level = ln; color = lc; advice = la; sadv = lsa; break;
     }
   }

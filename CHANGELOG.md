@@ -6,6 +6,41 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Binary `.bxp` container format** (spec §5.1–5.2), previously specified
+  but not implemented:
+  - `sdk/python/bxp_binary.py` — `encode_bxp_binary()` / `decode_bxp_binary()`
+    implementing the exact 32-byte header (magic number, version, file type,
+    flags, microsecond timestamp, payload length, header CRC32, payload
+    CRC32), optional gzip payload compression, and tamper/corruption
+    detection via checksums. Encryption (flag bit1) is deliberately left
+    unimplemented — SPEC.md does not yet pin down a cipher/key-exchange —
+    and raises `NotImplementedError` rather than silently no-op'ing.
+  - `write_bxp_binary()` / `read_bxp_binary()` / `validate_bxp_binary()`
+    added to `bxp_sdk.py`, sharing the same record-construction and
+    validation logic as the JSON path so both representations stay
+    semantically identical (spec's lossless-conversion requirement).
+  - CLI: `bxp generate --binary [--compress]`; `bxp read` / `bxp validate`
+    now auto-detect binary vs JSON by magic bytes; new `bxp convert`
+    command converts either direction.
+  - 31 unit tests in `sdk/python/tests/test_bxp_binary.py` covering header
+    layout, all six file-type codes, flags, round-trip losslessness,
+    checksum/tamper detection, and file-based conversion helpers.
+
+### Fixed
+
+- CLI: `cmd_generate` / `cmd_read` crashed when displaying the HRI advice
+  line (`ValueError: not enough values to unpack`) — `RISK_LEVELS` tuples
+  have 5 fields, not the 6 the unpacking assumed. Every `bxp generate` and
+  `bxp read` call hit this.
+- CLI: `bxp generate --lat 0 --lon 0` silently dropped both coordinates
+  because of a falsy (`if args.lat:`) check instead of `is not None`.
+
+---
+
 ## [2.0.0] — March 2026
 
 ### The Official Standard

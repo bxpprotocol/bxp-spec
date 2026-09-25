@@ -1,0 +1,53 @@
+<svg viewBox="0 0 1200 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BXP — Breathe Exposure Protocol">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B1220"/>
+      <stop offset="45%" stop-color="#0F2C4C"/>
+      <stop offset="100%" stop-color="#0E6E5C"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4FD1C5" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#4FD1C5" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="dot" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4FD1C5"/>
+      <stop offset="100%" stop-color="#0E6E5C"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="320" fill="url(#sky)"/>
+  <rect width="1200" height="160" fill="url(#glow)"/>
+
+  <!-- faint measurement grid -->
+  <g stroke="#4FD1C5" stroke-opacity="0.10">
+    <line x1="0" y1="60" x2="1200" y2="60"/>
+    <line x1="0" y1="120" x2="1200" y2="120"/>
+    <line x1="0" y1="180" x2="1200" y2="180"/>
+    <line x1="0" y1="240" x2="1200" y2="240"/>
+    <line x1="200" y1="0" x2="200" y2="320"/>
+    <line x1="400" y1="0" x2="400" y2="320"/>
+    <line x1="600" y1="0" x2="600" y2="320"/>
+    <line x1="800" y1="0" x2="800" y2="320"/>
+    <line x1="1000" y1="0" x2="1000" y2="320"/>
+  </g>
+
+  <!-- scattered "reading" nodes across a map, echoing federated sensors -->
+  <g>
+    <circle cx="120" cy="90"  r="4" fill="url(#dot)"/>
+    <circle cx="260" cy="200" r="5" fill="url(#dot)"/>
+    <circle cx="340" cy="70"  r="3" fill="url(#dot)"/>
+    <circle cx="980" cy="110" r="4" fill="url(#dot)"/>
+    <circle cx="1080" cy="230" r="5" fill="url(#dot)"/>
+    <circle cx="1120" cy="60"  r="3" fill="url(#dot)"/>
+    <circle cx="60"  cy="250" r="3" fill="url(#dot)"/>
+    <circle cx="1150" cy="150" r="3" fill="url(#dot)"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="600" y="160" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="96" font-weight="700" fill="#F4FBFA" letter-spacing="6">BXP</text>
+  <text x="600" y="205" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" font-weight="500" fill="#8FE3D6" letter-spacing="2">BREATHE EXPOSURE PROTOCOL</text>
+  <text x="600" y="245" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#B7C6D9">The open universal standard for atmospheric exposure data</text>
+
+  <!-- baseline -->
+  <line x1="300" y1="278" x2="900" y2="278" stroke="#4FD1C5" stroke-opacity="0.4" stroke-width="1"/>
+</svg>

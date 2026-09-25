@@ -26,6 +26,7 @@ import database as db
 db.DB_PATH = Path(tempfile.mktemp(suffix=".test.db"))
 
 from server import app
+from bxp_binary import encode_bxp_binary, decode_bxp_binary
 
 client = TestClient(app)
 
@@ -197,6 +198,116 @@ class TestGetReadings:
         ids1 = {x["readingId"] for x in d1}
         ids2 = {x["readingId"] for x in d2}
         assert ids1.isdisjoint(ids2)
+
+
+# ─── Binary .bxp container support (spec §5.1-5.2) ─────────────
+
+class TestBinaryFormat:
+    def test_submit_binary_reading_accepted(self):
+        raw = encode_bxp_binary({
+            "latitude": 5.6037, "longitude": -0.1870,
+            "agents": [{"agentId": "PM2_5", "value": 22.0}],
+        })
+        r = client.post(
+            "/bxp/v2/readings", content=raw,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert r.status_code == 201
+        assert r.json()["data"]["readings"][0]["bxpHri"] is not None
+
+    def test_submit_binary_container_with_multiple_readings(self):
+        raw = encode_bxp_binary({
+            "readings": [
+                {"latitude": 5.6, "longitude": -0.18,
+                 "agents": [{"agentId": "PM2_5", "value": 12.0}]},
+                {"latitude": 5.7, "longitude": -0.19,
+                 "agents": [{"agentId": "NO2", "value": 8.0}]},
+            ]
+        }, file_type="aggregate")
+        r = client.post(
+            "/bxp/v2/readings", content=raw,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert r.status_code == 201
+        assert len(r.json()["data"]["readings"]) == 2
+
+    def test_submit_binary_compressed_accepted(self):
+        raw = encode_bxp_binary({
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 5.0}],
+        }, compress=True)
+        r = client.post(
+            "/bxp/v2/readings", content=raw,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert r.status_code == 201
+
+    def test_submit_binary_invalid_latitude_rejected(self):
+        raw = encode_bxp_binary({
+            "latitude": 999.0, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 5.0}],
+        })
+        r = client.post(
+            "/bxp/v2/readings", content=raw,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert r.status_code == 422
+
+    def test_submit_binary_tampered_container_rejected(self):
+        raw = bytearray(encode_bxp_binary({
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 5.0}],
+        }))
+        raw[-1] ^= 0xFF
+        r = client.post(
+            "/bxp/v2/readings", content=bytes(raw),
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert r.status_code == 400
+
+    def test_submit_json_still_works_alongside_binary(self):
+        r = client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 5.0}]
+        }]})
+        assert r.status_code == 201
+
+    def test_get_reading_binary_format_round_trips(self):
+        submit = client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 41.0}]
+        }]}).json()
+        rid = submit["data"]["readings"][0]["readingId"]
+
+        r = client.get(f"/bxp/v2/readings/{rid}?format=binary")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/octet-stream"
+        decoded = decode_bxp_binary(r.content)
+        assert decoded["record"]["readingId"] == rid
+
+    def test_get_reading_binary_compressed(self):
+        submit = client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 41.0}]
+        }]}).json()
+        rid = submit["data"]["readings"][0]["readingId"]
+
+        r = client.get(f"/bxp/v2/readings/{rid}?format=binary&compress=true")
+        assert r.status_code == 200
+        decoded = decode_bxp_binary(r.content)
+        assert decoded["header"]["flags"]["compressed"] is True
+        assert decoded["record"]["readingId"] == rid
+
+    def test_list_readings_binary_format(self):
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 41.0}]
+        }]})
+        r = client.get("/bxp/v2/readings?geohash=s0&format=binary")
+        assert r.status_code == 200
+        decoded = decode_bxp_binary(r.content)
+        assert decoded["header"]["fileType"] == "aggregate"
+        assert isinstance(decoded["record"]["readings"], list)
 
 
 # ─── Delete & Verify ──────────────────────────────────────────

@@ -38,7 +38,27 @@ from bxp_sdk import (
     write_bxp, read_bxp, validate_bxp, calculate_risk,
     encode_geohash, BXPClient, BXP_VERSION, RISK_LEVELS,
     WHO_THRESHOLDS, HRI_WEIGHTS,
+    write_bxp_binary, read_bxp_binary, validate_bxp_binary,
 )
+from bxp_binary import (
+    encode_bxp_binary, decode_bxp_binary, BXPBinaryError,
+    bxp_json_to_binary, bxp_binary_to_json, FILE_TYPES,
+)
+
+
+def _is_binary_bxp(path) -> bool:
+    """Detect a binary .bxp file by magic number rather than trusting the extension."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+        return head == b"\x42\x58\x50\x00"
+    except OSError:
+        return False
+
+
+def _read_bxp_auto(path):
+    """Read either a .bxp.json or a binary .bxp file, auto-detected by content."""
+    return read_bxp_binary(path) if _is_binary_bxp(path) else read_bxp(path)
 
 # ─── Config file ─────────────────────────────────────────────────
 
@@ -127,11 +147,12 @@ def print_hri_banner(score, level, advice):
 # ─── Commands ─────────────────────────────────────────────────────
 
 def cmd_generate(args):
-    output = args.output or f"reading_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bxp.json"
+    default_ext = ".bxp" if args.binary else ".bxp.json"
+    output = args.output or f"reading_{datetime.now().strftime('%Y%m%d_%H%M%S')}{default_ext}"
     data = {}
-    if args.lat:  data["latitude"]  = float(args.lat)
-    if args.lon:  data["longitude"] = float(args.lon)
-    if args.gh:   data["geohash"]   = args.gh
+    if args.lat is not None: data["latitude"]  = float(args.lat)
+    if args.lon is not None: data["longitude"] = float(args.lon)
+    if args.gh:               data["geohash"]   = args.gh
 
     agent_map = {
         "pm25": "pm25",   "pm10": "pm10",  "no2": "no2",
@@ -156,9 +177,16 @@ def cmd_generate(args):
         sys.exit(1)
 
     try:
-        record = write_bxp(output, data, device_uuid=args.device_uuid)
+        if args.binary:
+            record = write_bxp_binary(
+                output, data, device_uuid=args.device_uuid,
+                compress=args.compress,
+            )
+        else:
+            record = write_bxp(output, data, device_uuid=args.device_uuid)
         print()
-        print(bold(f"  BXP file generated: {c(output, 'cyan')}"))
+        kind = "binary" if args.binary else "JSON"
+        print(bold(f"  BXP file generated ({kind}): {c(output, 'cyan')}"))
         print_sep()
         if record.get("geohash"):
             print(f"  Geohash:   {c(record['geohash'], 'cyan')}")
@@ -177,8 +205,8 @@ def cmd_generate(args):
 
         hri = record.get("bxpHri", 0)
         level = record.get("bxpHriLevel", "CLEAN")
-        advice = next((la for lo, hi, ln, lc, la, _ in RISK_LEVELS
-                       if lo <= hri <= hi), "")
+        advice = next((la for hi, ln, lc, msg, la in RISK_LEVELS
+                       if hri <= hi), RISK_LEVELS[-1][4])
         print_hri_banner(hri, level, advice)
 
         if args.verbose:
@@ -196,10 +224,20 @@ def cmd_read(args):
         print(c(f"Error: File not found: {path}", "red"))
         sys.exit(1)
 
-    record = read_bxp(path)
+    is_binary = _is_binary_bxp(path)
+    try:
+        record = read_bxp_binary(path) if is_binary else read_bxp(path)
+    except BXPBinaryError as e:
+        print(c(f"Error: {e}", "red"))
+        sys.exit(1)
     print()
-    print(bold(f"  BXP Record: {c(path, 'cyan')}"))
+    print(bold(f"  BXP Record ({'binary' if is_binary else 'json'}): {c(path, 'cyan')}"))
     print_sep()
+    if is_binary:
+        hdr = record.get("_binaryHeader", {})
+        print(f"  Binary header: v{hdr.get('majorVersion')}.{hdr.get('minorVersion')} "
+              f"type={hdr.get('fileType')} "
+              f"flags={','.join(k for k, v in hdr.get('flags', {}).items() if v) or 'none'}")
     print(f"  BXP Version: {record.get('bxpVersion', '?')}")
     print(f"  Device UUID: {c(record.get('deviceUuid', '?'), 'gray')}")
     print(f"  Geohash:     {c(record.get('geohash', '?'), 'cyan')}")
@@ -239,8 +277,8 @@ def cmd_read(args):
 
     hri   = record.get("bxpHri", 0)
     level = record.get("bxpHriLevel", "")
-    advice = next((la for lo, hi, ln, lc, la, _ in RISK_LEVELS
-                   if lo <= hri <= hi), "")
+    advice = next((la for hi, ln, lc, msg, la in RISK_LEVELS
+                   if hri <= hi), RISK_LEVELS[-1][4])
     print_hri_banner(hri, level, advice)
 
     if args.raw:
@@ -257,7 +295,7 @@ def cmd_validate(args):
         print(c(f"Error: File not found: {path}", "red"))
         sys.exit(1)
 
-    result = validate_bxp(path)
+    result = validate_bxp_binary(path) if _is_binary_bxp(path) else validate_bxp(path)
     print()
     print(bold(f"  BXP Validation: {c(path, 'cyan')}"))
     print_sep()
@@ -273,6 +311,57 @@ def cmd_validate(args):
         print(f"\n  {c('All checks passed.', 'green')}")
     print()
     sys.exit(0 if result["valid"] else 1)
+
+
+def cmd_convert(args):
+    src = args.file
+    if not Path(src).exists():
+        print(c(f"Error: File not found: {src}", "red"))
+        sys.exit(1)
+
+    src_is_binary = _is_binary_bxp(src)
+
+    # Resolve direction: explicit --to wins; otherwise flip whatever the
+    # source is, so `bxp convert x.bxp` -> x.bxp.json and vice versa.
+    to = args.to or ("json" if src_is_binary else "binary")
+
+    if to == "json" and not src_is_binary:
+        print(c("Error: source is already JSON (use --to binary, or pass a .bxp file)", "red"))
+        sys.exit(1)
+    if to == "binary" and src_is_binary:
+        print(c("Error: source is already a binary .bxp container (use --to json)", "red"))
+        sys.exit(1)
+
+    if args.output:
+        output = args.output
+    elif to == "json":
+        output = src[:-4] + ".json" if src.endswith(".bxp") else src + ".json"
+    else:
+        output = src[:-len(".bxp.json")] + ".bxp" if src.endswith(".bxp.json") else src + ".bxp"
+
+    try:
+        if to == "binary":
+            record = json.loads(Path(src).read_text(encoding="utf-8"))
+            raw = encode_bxp_binary(
+                record, file_type=args.file_type, compress=args.compress
+            )
+            Path(output).write_bytes(raw)
+            before, after = len(json.dumps(record).encode()), len(raw)
+        else:
+            decoded = decode_bxp_binary(Path(src).read_bytes())
+            Path(output).write_text(
+                json.dumps(decoded["record"], indent=2, default=str), encoding="utf-8"
+            )
+            before, after = Path(src).stat().st_size, Path(output).stat().st_size
+    except (BXPBinaryError, Exception) as e:
+        print(c(f"Error: {e}", "red"))
+        sys.exit(1)
+
+    print()
+    print(bold(f"  Converted: {c(src, 'cyan')} → {c(output, 'cyan')}"))
+    print(f"  {before} bytes → {after} bytes "
+          f"({'+' if after >= before else ''}{after - before} bytes)")
+    print()
 
 
 def cmd_hri(args):
@@ -656,15 +745,32 @@ Examples:
     gen.add_argument("--output",   type=str, help="Output filename")
     gen.add_argument("--device-uuid", dest="device_uuid", type=str)
     gen.add_argument("--verbose",  action="store_true", help="Print full record")
+    gen.add_argument("--binary",   action="store_true",
+                      help="Write a binary .bxp container instead of .bxp.json")
+    gen.add_argument("--compress", action="store_true",
+                      help="Gzip-compress the payload (binary only)")
 
     # ── read ───────────────────────────────────────────────────
-    rd = sub.add_parser("read", help="Read and display a .bxp.json file")
-    rd.add_argument("file", help="Path to .bxp.json file")
+    rd = sub.add_parser("read", help="Read and display a .bxp.json or binary .bxp file")
+    rd.add_argument("file", help="Path to .bxp.json or binary .bxp file")
     rd.add_argument("--raw", action="store_true", help="Print raw JSON")
 
     # ── validate ───────────────────────────────────────────────
-    vl = sub.add_parser("validate", help="Validate a .bxp.json file")
-    vl.add_argument("file", help="Path to .bxp.json file")
+    vl = sub.add_parser("validate", help="Validate a .bxp.json or binary .bxp file")
+    vl.add_argument("file", help="Path to .bxp.json or binary .bxp file")
+
+    # ── convert ────────────────────────────────────────────────
+    cv = sub.add_parser("convert",
+                        help="Convert between .bxp.json and binary .bxp (spec §5.1)")
+    cv.add_argument("file", help="Source file (.bxp.json or binary .bxp)")
+    cv.add_argument("--to", choices=["json", "binary"],
+                     help="Target format (default: opposite of source)")
+    cv.add_argument("--output", type=str, help="Output filename")
+    cv.add_argument("--compress", action="store_true",
+                     help="Gzip-compress the payload when converting to binary")
+    cv.add_argument("--file-type", dest="file_type", default="reading",
+                     choices=list(FILE_TYPES),
+                     help="Binary fileType field when converting to binary (default: reading)")
 
     # ── export ─────────────────────────────────────────────────
     ex = sub.add_parser("export", help="Export .bxp.json to CSV or GeoJSON")
@@ -725,6 +831,7 @@ Examples:
         "generate":      cmd_generate,
         "read":          cmd_read,
         "validate":      cmd_validate,
+        "convert":       cmd_convert,
         "export":        cmd_export,
         "hri":           cmd_hri,
         "submit":        cmd_submit,
