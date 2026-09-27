@@ -8,7 +8,139 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-### Added
+### Added — Federation & discovery: `/nearby` and `/sync` (spec §7 Stages 6–7)
+
+- **`GET /bxp/v2/nearby`** (§8.2.1) — "closest useful observation" lookup
+  for a caller with no sensor of their own. Candidates are found via
+  geohash-5 + 8-neighbor cell expansion (always covers a ~4.9km radius),
+  filtered by true haversine distance, `maxAgeS`, an optional `agent`
+  filter, and `minQuality` (INVALID always excluded regardless), then
+  ranked by a blend of distance/freshness/quality — deliberately not a
+  frozen formula per spec (`database.py::get_nearby_readings`).
+- **`GET /bxp/v2/sync`** (§8.2.2) — pull-based federation replication:
+  everything created after a `sinceTs` watermark, each reading carrying
+  its originating `nodeId`, plus a `nextSinceTs` cursor. Gated by a new
+  `BXP_NODE_SYNC_TOKEN` env var if set — an explicit placeholder for the
+  node trust/identity system spec §7 defers to a future RFC, not that
+  system itself (same honesty pattern as the binary format's
+  unimplemented encryption flag).
+- 12 new server tests (7 nearby, 5 sync) covering distance/age/agent/
+  quality filtering, ranking order, limit capping, and the token gate.
+  **55/55 server tests passing**, no regressions.
+- Corrected README.md's status table, roadmap, and Limitations section,
+  which still said `/nearby` and `/sync` were "specified but not
+  implemented" — they were the two items explicitly left over from the
+  previous checkpoint's status report.
+
+### Added — Conformance, TypeScript native format, calibration/trust, OpenAQ bridge
+
+This round focused on two things: (1) making `.bxp` actually
+interoperable across independent implementations rather than a
+Python-only format with a JSON-only TypeScript SDK, and (2)
+reprioritizing toward calibration/trust and bridging existing air
+quality data sources, based on the current real-world context —
+government reference-monitor funding is being cut in several
+countries while low-cost sensor networks (PurpleAir, AfriqAir, OpenAQ)
+are the fastest-growing source of coverage. See SPEC.md §3.7 and §7
+Stage 2 for the reasoning.
+
+- **Conformance model & spec/implementation reconciliation (SPEC.md)**
+  - New §3.7 explicitly separates *normative* interoperability
+    surface (record schema, binary encoding, verification,
+    versioning) from *informative* recommendations. §4's "BXP Volume
+    file system" is renamed "Recommended Node Storage Layout
+    (informative, non-normative)" — it was previously written in
+    normative-sounding language that conflicted with `.bxp` being a
+    single-record portable format, not a filesystem/database.
+  - New §5.7–§5.10: unknown/future-field handling (ignore-and-preserve),
+    MAJOR/MINOR version negotiation rules, an `ext` extension
+    namespace, and an explicit statement that encryption (flag bit1)
+    is reserved but unspecified.
+  - New §5.5.1 Calibration & Correction: an optional per-agent
+    `correction` object (`applied`, `rawValue`, `model`,
+    `referenceDeviceUuid`) so a corrected value never silently
+    replaces the raw sensor output, plus a rule that `quality.flag:
+    VALIDATED` must be backed by either an applied correction or an
+    explicit `qcMethod` — not asserted on its own.
+  - §8.2's REST endpoint table reconciled against the actual
+    `reference-server/` implementation, which had drifted from it
+    (e.g. spec said `/locations/{geohash}/current`, server implements
+    `/bxp/v2/locations/{geohash}/latest`). Unimplemented-but-planned
+    endpoints are now explicitly marked "Planned" instead of
+    misrepresented as done.
+  - New §7 Stage 6 (DISCOVER) and Stage 7 (FEDERATE), and new §15
+    Conformance & Test Vectors, specifying the `/nearby` and `/sync`
+    endpoints and the conformance-vector methodology below. (`/nearby`
+    and `/sync` are specified but not yet implemented in
+    `reference-server/` — see Unreleased/Next below.)
+
+- **Cross-implementation conformance suite** (`conformance/`)
+  - 17 golden `.bxp` vectors: 9 valid records covering every file
+    type and flag combination, plus 6 deliberately malformed files
+    (bad magic, truncated header, truncated payload, corrupted header
+    checksum, corrupted payload checksum, corrupted payload byte) and
+    an unsupported-major-version case.
+  - `generate_vectors.py` (reproducible generator), `manifest.json`,
+    `verify_python.py`, `verify_typescript.mjs`. All three currently
+    pass — this is verified evidence that Python and TypeScript agree
+    byte-for-byte on the native binary format.
+
+- **TypeScript native binary `.bxp` support** (`sdk/typescript/bxp-binary.ts`)
+  — did not exist before; the TS SDK only spoke JSON, so Python and
+  TypeScript implementations could not actually exchange `.bxp` files.
+  Mirrors `bxp_binary.py` field-for-field, including the new
+  major-version rejection policy. 19 tests
+  (`sdk/typescript/tests/bxp-binary.test.ts`) using Node's built-in
+  test runner — zero new dependencies, runnable as `node --test
+  tests/bxp-binary.test.ts` with nothing but Node 22+.
+
+- **`bxp_binary.py`**: `decode_bxp_binary()` now actually enforces the
+  MAJOR-version rejection rule (SPEC.md §5.8) when `verify=True` — it
+  previously decoded any major version without checking. New
+  `SUPPORTED_MAJOR` constant and `majorVersionSupported` field on the
+  decode result.
+
+- **`bxp_sdk.py`**
+  - `validate_bxp_record()`: enforces the new VALIDATED-justification
+    rule (§5.5.1) as a warning; fixed the version check to only flag a
+    true major-version mismatch as an error, instead of warning on
+    *any* non-"2.0" string (which incorrectly flagged valid future
+    minor versions per §5.8).
+  - `_build_bxp_record()`: fixed two real bugs found while adding test
+    coverage — (1) agent entries supplied directly via the `agents`
+    key skipped negative-value/missing-value validation (only the
+    shorthand keys like `pm25=` were checked); (2) the builder
+    aliased the caller's agent dicts instead of copying them, so
+    mutating `record["agents"][0]` after the fact silently mutated
+    the caller's original input too.
+  - New `BXPClient.submit_record()`: submits an already-fully-built
+    record as-is (original `deviceUuid`, `timestampUs`, `quality`,
+    etc.), unlike `submit()` which always uses "now" and the client's
+    own device UUID — needed by any importer/bridge handling
+    historical or third-party data.
+  - New `sdk/python/tests/test_bxp_sdk.py` (14 tests) — this file did
+    not exist before; only the binary format had coverage.
+
+- **OpenAQ → BXP importer** (`integrations/openaq_import.py`) —
+  converts OpenAQ v3 API data into valid BXP records rather than
+  requiring new hardware adoption before BXP has any real data in it.
+  Deliberately conservative on trust: only marks a reading
+  `VALIDATED` when OpenAQ's own metadata says the source is a
+  reference-grade monitor (`isMonitor: true`); everything else comes
+  through `UNVALIDATED`, per §5.5.1 — importing a feed does not
+  launder its accuracy. 8 tests
+  (`integrations/tests/test_openaq_import.py`) against an offline
+  fixture; the live HTTP path could not be exercised against the real
+  API in this sandbox (no outbound network access) and should be
+  confirmed by a developer with network access before production use.
+
+### Fixed
+
+- See `_build_bxp_record()` bug fixes above (negative-value
+  validation bypass, agent-dict aliasing) and the `bxp_binary.py`
+  major-version enforcement gap above.
+
+
 
 - **Binary `.bxp` container format** (spec §5.1–5.2), previously specified
   but not implemented:

@@ -50,6 +50,12 @@ from typing import Optional
 
 MAGIC = 0x42585000  # "BXP\0"
 
+# The highest major version this decoder understands. Per SPEC.md §5.8,
+# a major-version mismatch MUST be rejected rather than guessed at; a
+# minor version higher than SUPPORTED_MINOR for a supported major MUST
+# still be parsed (unknown fields are simply ignored/preserved, §5.7).
+SUPPORTED_MAJOR = 2
+
 HEADER_STRUCT = struct.Struct(">IHHBBHqI")  # bytes 0x00-0x17 (24 bytes)
 CHECKSUM_STRUCT = struct.Struct(">II")      # bytes 0x18-0x1F (8 bytes)
 HEADER_SIZE = HEADER_STRUCT.size + CHECKSUM_STRUCT.size  # 32
@@ -154,7 +160,7 @@ def encode_bxp_binary(
     return header_body + checksums + payload
 
 
-def decode_bxp_binary(raw: bytes, verify: bool = True) -> dict:
+def decode_bxp_binary(raw: bytes, verify: bool = True, supported_major: int = SUPPORTED_MAJOR) -> dict:
     """
     Decode a binary `.bxp` container back into a BXP record dict plus
     header metadata.
@@ -162,8 +168,17 @@ def decode_bxp_binary(raw: bytes, verify: bool = True) -> dict:
     Args:
         raw:    Full file contents (header + payload).
         verify: If True (default), raise BXPBinaryError on magic number,
-                length, or checksum mismatch instead of returning a
-                result with integrity flags set to False.
+                length, checksum, or unsupported-major-version mismatch
+                instead of returning a result with integrity flags set
+                to False. Minor-version differences are never an error
+                (SPEC.md §5.8): unrecognized optional fields are simply
+                ignored, per §5.7.
+        supported_major: The major version this caller understands.
+                Defaults to SUPPORTED_MAJOR (this module's current
+                understanding of the wire format). A file whose major
+                version differs is rejected when verify=True, per the
+                MUST-refuse rule in SPEC.md §5.8 — the payload is not
+                guessed at.
 
     Returns:
         {
@@ -174,6 +189,7 @@ def decode_bxp_binary(raw: bytes, verify: bool = True) -> dict:
           },
           "headerChecksumOk": bool,
           "payloadChecksumOk": bool,
+          "majorVersionSupported": bool,
         }
     """
     if len(raw) < HEADER_SIZE:
@@ -195,6 +211,14 @@ def decode_bxp_binary(raw: bytes, verify: bool = True) -> dict:
         raise BXPBinaryError(
             f"Bad magic number: 0x{magic:08X} (expected 0x{MAGIC:08X}) — "
             "not a .bxp binary file"
+        )
+
+    major_version_supported = (major == supported_major)
+    if verify and not major_version_supported:
+        raise BXPBinaryError(
+            f"Unsupported major version {major} (this decoder supports "
+            f"major version {supported_major}) — refusing to guess at "
+            "payload structure per SPEC.md §5.8"
         )
 
     computed_header_checksum = zlib.crc32(header_body) & 0xFFFFFFFF
@@ -251,6 +275,7 @@ def decode_bxp_binary(raw: bytes, verify: bool = True) -> dict:
         },
         "headerChecksumOk":  header_checksum_ok,
         "payloadChecksumOk": payload_checksum_ok,
+        "majorVersionSupported": major_version_supported,
     }
 
 

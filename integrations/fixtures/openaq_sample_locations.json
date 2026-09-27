@@ -1,0 +1,46 @@
+{
+  "locations": [
+    {
+      "id": 8118,
+      "name": "Accra US Embassy",
+      "locality": "Accra",
+      "timezone": "Africa/Accra",
+      "country": {"id": 1, "code": "GH", "name": "Ghana"},
+      "owner": {"id": 4, "name": "Unknown Governmental Organization"},
+      "provider": {"id": 119, "name": "AirNow"},
+      "isMobile": false,
+      "isMonitor": true,
+      "instruments": [{"id": 2, "name": "Government Monitor"}],
+      "sensors": [
+        {"id": 23534, "name": "pm25 \u00b5g/m\u00b3", "parameter": {"id": 2, "name": "pm25", "units": "\u00b5g/m\u00b3", "displayName": "PM2.5"}},
+        {"id": 23535, "name": "temperature c", "parameter": {"id": 20, "name": "temperature", "units": "c", "displayName": "Temperature"}}
+      ],
+      "coordinates": {"latitude": 5.5852, "longitude": -0.1731}
+    },
+    {
+      "id": 445210,
+      "name": "Osu Community Sensor 3",
+      "locality": "Accra",
+      "timezone": "Africa/Accra",
+      "country": {"id": 1, "code": "GH", "name": "Ghana"},
+      "owner": {"id": 900, "name": "AfriqAir"},
+      "provider": {"id": 442, "name": "AfriqAir Low-Cost Network"},
+      "isMobile": false,
+      "isMonitor": false,
+      "instruments": [{"id": 55, "name": "Low-cost optical sensor"}],
+      "sensors": [
+        {"id": 990112, "name": "pm25 \u00b5g/m\u00b3", "parameter": {"id": 2, "name": "pm25", "units": "\u00b5g/m\u00b3", "displayName": "PM2.5"}}
+      ],
+      "coordinates": {"latitude": 5.5560, "longitude": -0.1830}
+    }
+  ],
+  "latest_by_location": {
+    "8118": [
+      {"datetime": {"utc": "2026-09-20T12:00:00Z"}, "value": 22.4, "sensorsId": 23534, "locationsId": 8118},
+      {"datetime": {"utc": "2026-09-20T12:00:00Z"}, "value": 29.1, "sensorsId": 23535, "locationsId": 8118}
+    ],
+    "445210": [
+      {"datetime": {"utc": "2026-09-20T12:05:00Z"}, "value": 41.7, "sensorsId": 990112, "locationsId": 445210}
+    ]
+  }
+}

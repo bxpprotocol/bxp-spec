@@ -56,7 +56,7 @@ from database import (
     query_readings, get_geohash_latest, get_geohash_history, get_aggregate,
     reading_count, register_device, get_device, validate_token,
     bump_device_seen, insert_report, query_reports,
-    upsert_node, get_nodes,
+    upsert_node, get_nodes, get_nearby_readings, get_readings_since,
 )
 
 # ─── Logging ──────────────────────────────────────────────────
@@ -71,6 +71,14 @@ log = logging.getLogger("bxp.server")
 AQICN_TOKEN  = os.environ.get("AQICN_TOKEN", "")
 BXP_VERSION  = "2.0"
 NODE_ID      = os.environ.get("BXP_NODE_ID", "bxp-public-node-001")
+# Shared-secret gate for GET /bxp/v2/sync (spec §7 Stage 7 / §8.2.2 calls
+# for "Node Token" auth). Full node identity/trust/reputation is
+# explicitly deferred to a future RFC per spec §7 — this env var is a
+# functional placeholder for that, not the eventual trust system. If
+# unset, /sync is open (consistent with this reference server's other
+# not-yet-hardened auth columns, e.g. devices/register's unenforced
+# "API Key").
+BXP_NODE_SYNC_TOKEN = os.environ.get("BXP_NODE_SYNC_TOKEN", "")
 NODE_TYPE    = os.environ.get("BXP_NODE_TYPE", "reference")
 
 # ─── Agent ID normalisation ───────────────────────────────────
@@ -894,6 +902,31 @@ async def search(
     }
 
 
+@app.get("/bxp/v2/nearby")
+async def get_nearby(
+    lat: float, lon: float,
+    radiusM: int = 2000, maxAgeS: int = 3600,
+    agent: Optional[str] = None, minQuality: str = "UNVALIDATED",
+    limit: int = 1,
+):
+    """
+    Relevance-ranked "closest useful observation" lookup (spec §7 Stage 6,
+    §8.2.1) — for a caller with no sensor of their own. Ranks candidates
+    within radiusM/maxAgeS by a blend of distance, freshness, and quality;
+    see database.py::get_nearby_readings for the scoring function, which
+    the spec deliberately leaves as an implementation detail rather than
+    a frozen formula.
+    """
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        raise HTTPException(status_code=422, detail="lat/lon out of range.")
+    limit = min(max(limit, 1), 50)
+    results = get_nearby_readings(
+        lat=lat, lon=lon, radius_m=radiusM, max_age_s=maxAgeS,
+        agent=agent, min_quality=minQuality, limit=limit,
+    )
+    return {"status": "ok", "count": len(results), "data": {"readings": results}}
+
+
 # ─── Community reports ────────────────────────────────────────
 
 @app.post("/bxp/v2/community/reports", status_code=201)
@@ -1006,6 +1039,43 @@ async def announce_node(request: Request):
         return {"status": "ok", "message": "Node registered."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/bxp/v2/sync")
+async def sync_pull(
+    sinceTs: int = 0,
+    limit: int = 500,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Federation pull (spec §7 Stage 7, §8.2.2) — the minimum operation a
+    second node needs to replicate from this one: everything created
+    after `sinceTs` (microseconds), plus a `nextSinceTs` cursor for the
+    caller's next call. Each reading already carries its originating
+    `nodeId` (provenance), so a record's chain of custody survives being
+    copied between nodes.
+
+    Auth: gated by BXP_NODE_SYNC_TOKEN if that env var is set (see its
+    definition above for why this is a placeholder, not the eventual
+    node trust system spec §7 defers to a future RFC). Trust/reputation,
+    dedup policy, and conflict resolution between nodes are explicitly
+    NOT handled here — a caller replicating from multiple peers is
+    responsible for its own dedup (e.g. by readingId) for now.
+    """
+    if BXP_NODE_SYNC_TOKEN:
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        if token != BXP_NODE_SYNC_TOKEN:
+            raise HTTPException(status_code=401,
+                                detail="Invalid or missing node token.")
+
+    limit = min(max(limit, 1), 2000)
+    readings, next_since_ts = get_readings_since(sinceTs, limit)
+    return {
+        "status": "ok",
+        "count": len(readings),
+        "data": {"readings": readings},
+        "nextSinceTs": next_since_ts,
+    }
 
 
 # ─── Prometheus metrics ───────────────────────────────────────

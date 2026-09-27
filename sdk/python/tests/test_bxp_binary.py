@@ -67,9 +67,38 @@ def test_version_fields_default_to_record_bxpversion():
 def test_version_fields_parse_nonzero_minor():
     record = dict(SAMPLE_RECORD, bxpVersion="3.7")
     raw = encode_bxp_binary(record)
-    decoded = decode_bxp_binary(raw)
+    # verify=False: this test is about header *parsing*, not the
+    # major-version acceptance policy (see test_unsupported_major_version_*
+    # below for that).
+    decoded = decode_bxp_binary(raw, verify=False)
     assert decoded["header"]["majorVersion"] == 3
     assert decoded["header"]["minorVersion"] == 7
+    assert decoded["majorVersionSupported"] is False
+
+
+def test_unsupported_major_version_rejected_when_verify_true():
+    record = dict(SAMPLE_RECORD, bxpVersion="3.0")
+    raw = encode_bxp_binary(record)
+    with pytest.raises(BXPBinaryError):
+        decode_bxp_binary(raw, verify=True)
+
+
+def test_unsupported_major_version_reported_not_raised_when_verify_false():
+    record = dict(SAMPLE_RECORD, bxpVersion="3.0")
+    raw = encode_bxp_binary(record)
+    decoded = decode_bxp_binary(raw, verify=False)
+    assert decoded["majorVersionSupported"] is False
+    assert decoded["record"]["bxpVersion"] == "3.0"
+
+
+def test_higher_minor_version_same_major_is_accepted():
+    # SPEC.md §5.8: same major, higher minor than we've seen before ->
+    # MUST still parse. SUPPORTED_MAJOR is 2, so 2.99 must decode fine.
+    record = dict(SAMPLE_RECORD, bxpVersion="2.99")
+    raw = encode_bxp_binary(record)
+    decoded = decode_bxp_binary(raw, verify=True)
+    assert decoded["majorVersionSupported"] is True
+    assert decoded["header"]["minorVersion"] == 99
 
 
 @pytest.mark.parametrize("file_type,code", list(FILE_TYPES.items()))

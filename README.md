@@ -63,9 +63,19 @@ bxp-protocol/
 │   └── tests/                       Pytest suite
 ├── sdk/
 │   ├── python/bxp_sdk.py            Python SDK v2.1
-│   └── typescript/bxp-sdk.ts        TypeScript SDK
+│   ├── python/bxp_binary.py         Native binary .bxp codec
+│   └── typescript/
+│       ├── bxp-sdk.ts               TypeScript SDK
+│       └── bxp-binary.ts            Native binary .bxp codec (TS)
+├── conformance/                     Cross-implementation golden test vectors
+│   ├── vectors/                     17 golden .bxp files (valid + malformed)
+│   ├── generate_vectors.py
+│   ├── verify_python.py
+│   └── verify_typescript.mjs
 ├── cli/bxp_cli.py                   Command-line tool v2.1
-├── integrations/mqtt_bridge.py      MQTT → BXP bridge
+├── integrations/
+│   ├── mqtt_bridge.py               MQTT → BXP bridge
+│   └── openaq_import.py             OpenAQ v3 API → BXP importer
 ├── datasets/sample_readings.bxp.json  10 global city readings
 ├── docs/
 │   ├── api_documentation.md
@@ -223,18 +233,25 @@ A composite 0–100 score incorporating all available agents simultaneously, wei
 
 | Component | Status |
 |-----------|--------|
-| BXP v2.0 specification | ✅ Complete |
-| Reference server v2.1 | ✅ Complete |
-| Python SDK v2.1 | ✅ Complete |
-| TypeScript SDK | ✅ Complete |
+| BXP v2.0 specification | ✅ Complete, with an explicit conformance model (§3.7, §15) |
+| Reference server v2.1 | ✅ Core reading/query endpoints implemented, including `/nearby` and `/sync` |
+| Python SDK v2.1 | ✅ Complete, including native binary format |
+| TypeScript SDK | ✅ Complete, including native binary format (new) |
 | CLI tool v2.1 | ✅ Complete |
 | MQTT bridge | ✅ Complete |
+| OpenAQ importer | ✅ Complete — converts OpenAQ v3 data into valid BXP records |
 | Sample dataset | ✅ Complete |
-| Binary `.bxp` format | 📄 Specified; implementation pending |
-| Federated node sync | 📄 Specified; implementation pending |
-| Arduino/ESP32 SDKs | 🗓️ Planned |
+| Binary `.bxp` format | ✅ Implemented in Python and TypeScript; verified byte-for-byte interoperable via `conformance/` |
+| Conformance test suite | ✅ 17 golden vectors, Python + TypeScript both passing |
+| Embedded (C/Arduino/ESP32) | 🗓️ Planned, not yet implemented |
+| Federated node sync (`/sync`) | ✅ Implemented (§7 Stage 7) — pull-only replication primitive; trust/reputation/dedup between nodes still unspecified |
+| Nearby-observation query (`/nearby`) | ✅ Implemented (§7 Stage 6, §8.2.1) — relevance-ranked by distance, freshness, quality |
 
 ## Roadmap
+
+**Near-term**
+- Embedded C reference codec + ESP32/Arduino example, tested against the same conformance vectors as Python/TypeScript
+- PurpleAir (or similar low-cost-network API) importer, following the same trust-preserving pattern as `openaq_import.py`
 
 **v2.1 (planned)**
 - Python SDK pip package publication
@@ -252,11 +269,26 @@ A composite 0–100 score incorporating all available agents simultaneously, wei
 ## Limitations
 
 BXP is an independent research project at prototype stage:
-- The binary `.bxp` file format is specified but not yet implemented in software
-- The federated node synchronisation protocol is designed but not yet built
+- Federation (`/sync`) is pull-only replication; node trust/reputation, dedup
+  policy for readings arriving via multiple paths, and conflict resolution
+  are explicitly out of scope for now (SPEC.md §7 Stage 7) — a caller
+  replicating from several peers must handle its own dedup (e.g. by
+  `readingId`)
+- `/sync`'s "Node Token" auth (SPEC.md §8.2) is a shared-secret placeholder
+  (`BXP_NODE_SYNC_TOKEN` env var) — real node identity/trust is deferred to
+  a future RFC, same as encryption in the binary `.bxp` format
+- `/nearby`'s relevance ranking (distance + freshness + quality) is an
+  implementation detail, not a frozen formula — SPEC.md §7 Stage 6
+  intentionally leaves this open so heuristics can improve without
+  breaking the API shape
+- No embedded (C/Arduino/ESP32) implementation exists yet
 - No third-party has independently implemented the protocol
 - BXP_HRI has not been clinically or epidemiologically validated
 - The reference server is a prototype — not load-tested or security-audited in production
+- The OpenAQ importer's live HTTP path has not been exercised against the real
+  api.openaq.org (built and tested against a realistic offline fixture only,
+  due to this development environment having no outbound network access) —
+  confirm against the live API before relying on it in production
 
 ## Documentation
 

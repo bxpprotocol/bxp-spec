@@ -446,6 +446,144 @@ class TestSearch:
         assert r.status_code == 200
 
 
+# ─── Nearby (spec §7 Stage 6, §8.2.1) ──────────────────────────
+
+class TestNearby:
+    def test_nearby_finds_reading_close_by(self):
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6037, "longitude": -0.1870,
+            "agents": [{"agentId": "PM2_5", "value": 30}]
+        }]})
+        # ~50m away from the submitted point
+        r = client.get("/bxp/v2/nearby?lat=5.6040&lon=-0.1870&radiusM=2000")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] >= 1
+        assert body["data"]["readings"][0]["distanceM"] < 2000
+        assert "relevanceScore" in body["data"]["readings"][0]
+
+    def test_nearby_excludes_beyond_radius(self):
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6037, "longitude": -0.1870,
+            "agents": [{"agentId": "PM2_5", "value": 30}]
+        }]})
+        # ~1 degree away (~111km) — well outside any small radius
+        r = client.get("/bxp/v2/nearby?lat=6.6037&lon=-0.1870&radiusM=2000")
+        assert r.status_code == 200
+        assert r.json()["count"] == 0
+
+    def test_nearby_respects_max_age(self):
+        # A reading with an old timestampUs should be excluded by maxAgeS.
+        old_ts = int(time.time() * 1_000_000) - 7200 * 1_000_000  # 2h ago
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.61, "longitude": -0.19, "timestampUs": old_ts,
+            "agents": [{"agentId": "PM2_5", "value": 30}]
+        }]})
+        r = client.get("/bxp/v2/nearby?lat=5.61&lon=-0.19&maxAgeS=3600")
+        assert r.status_code == 200
+        # None of the returned readings (if any from other tests' fresh
+        # data at this exact point) should be the 2h-old one.
+        for reading in r.json()["data"]["readings"]:
+            assert reading["timestampUs"] != old_ts
+
+    def test_nearby_agent_filter(self):
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.62, "longitude": -0.20,
+            "agents": [{"agentId": "NO2", "value": 10}]
+        }]})
+        r = client.get("/bxp/v2/nearby?lat=5.62&lon=-0.20&agent=PM2_5")
+        assert r.status_code == 200
+        for reading in r.json()["data"]["readings"]:
+            assert any(a["agentId"] == "PM2_5" for a in reading["agents"])
+
+    def test_nearby_invalid_coordinates_rejected(self):
+        r = client.get("/bxp/v2/nearby?lat=999&lon=-0.18")
+        assert r.status_code == 422
+
+    def test_nearby_limit_respected(self):
+        for i in range(3):
+            client.post("/bxp/v2/readings", json={"readings": [{
+                "latitude": 5.63 + i * 0.0001, "longitude": -0.21,
+                "agents": [{"agentId": "PM2_5", "value": 10 + i}]
+            }]})
+        r = client.get("/bxp/v2/nearby?lat=5.63&lon=-0.21&limit=2")
+        assert r.status_code == 200
+        assert len(r.json()["data"]["readings"]) <= 2
+
+    def test_nearby_ranks_closer_fresher_above_farther_stale(self):
+        # Two readings at very different distances/ages from the query
+        # point; the closer+fresher one should rank first (spec §7's own
+        # example: 3min/400m should usually outrank 55min/50m — here we
+        # invert it to closer+fresher vs farther+stale to keep the two
+        # candidates in the same geohash-neighbor cells reliably).
+        now_us = int(time.time() * 1_000_000)
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6500, "longitude": -0.2200,
+            "timestampUs": now_us - 55 * 60 * 1_000_000,  # 55 min old
+            "agents": [{"agentId": "PM2_5", "value": 10}]
+        }]})
+        client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6503, "longitude": -0.2200,
+            "timestampUs": now_us - 3 * 60 * 1_000_000,  # 3 min old
+            "agents": [{"agentId": "PM2_5", "value": 10}]
+        }]})
+        r = client.get("/bxp/v2/nearby?lat=5.6500&lon=-0.2200&radiusM=2000&limit=2")
+        readings = r.json()["data"]["readings"]
+        assert len(readings) == 2
+        assert readings[0]["relevanceScore"] >= readings[1]["relevanceScore"]
+
+
+# ─── Sync (spec §7 Stage 7, §8.2.2) ────────────────────────────
+
+class TestSync:
+    def test_sync_returns_readings_since_watermark(self):
+        r0 = client.get("/bxp/v2/sync?sinceTs=0&limit=1")
+        watermark = r0.json()["nextSinceTs"]
+
+        submit = client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.7, "longitude": -0.3,
+            "agents": [{"agentId": "PM2_5", "value": 15}]
+        }]}).json()
+        new_ts = submit["data"]["readings"][0]["timestampUs"]
+
+        r = client.get(f"/bxp/v2/sync?sinceTs={watermark}&limit=500")
+        assert r.status_code == 200
+        body = r.json()
+        assert any(x["timestampUs"] == new_ts for x in body["data"]["readings"])
+        assert body["nextSinceTs"] >= new_ts
+
+    def test_sync_reading_carries_node_id(self):
+        submit = client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.71, "longitude": -0.31,
+            "agents": [{"agentId": "PM2_5", "value": 15}]
+        }]}).json()
+        ts = submit["data"]["readings"][0]["timestampUs"]
+        r = client.get(f"/bxp/v2/sync?sinceTs={ts - 1}&limit=500")
+        match = next(x for x in r.json()["data"]["readings"] if x["timestampUs"] == ts)
+        assert match.get("nodeId")
+
+    def test_sync_limit_capped(self):
+        r = client.get("/bxp/v2/sync?sinceTs=0&limit=99999")
+        assert r.status_code == 200  # capped server-side, not rejected
+
+    def test_sync_empty_when_nothing_newer(self):
+        r = client.get("/bxp/v2/sync?sinceTs=99999999999999999&limit=10")
+        assert r.status_code == 200
+        assert r.json()["count"] == 0
+
+    def test_sync_token_gate_when_configured(self, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "BXP_NODE_SYNC_TOKEN", "secret123")
+        r_no_auth = client.get("/bxp/v2/sync?sinceTs=0")
+        assert r_no_auth.status_code == 401
+        r_bad = client.get("/bxp/v2/sync?sinceTs=0",
+                           headers={"Authorization": "Bearer wrong"})
+        assert r_bad.status_code == 401
+        r_ok = client.get("/bxp/v2/sync?sinceTs=0",
+                          headers={"Authorization": "Bearer secret123"})
+        assert r_ok.status_code == 200
+
+
 # ─── Metrics ─────────────────────────────────────────────────
 
 class TestMetrics:

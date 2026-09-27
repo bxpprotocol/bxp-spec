@@ -8,6 +8,7 @@ import sqlite3
 import threading
 import json
 import time
+import math
 import hashlib
 from pathlib import Path
 from typing import Optional
@@ -347,6 +348,189 @@ def reading_count() -> int:
     return conn.execute(
         "SELECT COUNT(*) FROM readings WHERE deleted=0"
     ).fetchone()[0]
+
+
+# ─── Geo helpers for /nearby (spec §7 Stage 6, §8.2.1) ────────
+#
+# Small, self-contained geohash encode/decode/neighbor + haversine
+# distance — duplicated from bxp_sdk.encode_geohash / server._encode_geohash
+# rather than imported, to keep this module free of a dependency on the
+# server or SDK. If you change the geohash bit-encoding algorithm, it
+# must change identically in all three places.
+
+_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
+
+
+def _encode_geohash(lat: float, lon: float, precision: int = 7) -> str:
+    lat_range, lon_range = [-90.0, 90.0], [-180.0, 180.0]
+    geohash, bit, ch, even = [], 0, 0, True
+    bits = [16, 8, 4, 2, 1]
+    while len(geohash) < precision:
+        if even:
+            mid = (lon_range[0] + lon_range[1]) / 2
+            if lon >= mid:
+                ch |= bits[bit]; lon_range[0] = mid
+            else:
+                lon_range[1] = mid
+        else:
+            mid = (lat_range[0] + lat_range[1]) / 2
+            if lat >= mid:
+                ch |= bits[bit]; lat_range[0] = mid
+            else:
+                lat_range[1] = mid
+        even = not even
+        if bit < 4:
+            bit += 1
+        else:
+            geohash.append(_BASE32[ch]); bit = 0; ch = 0
+    return "".join(geohash)
+
+
+def _decode_geohash_bbox(gh: str):
+    """Returns ([lat_min, lat_max], [lon_min, lon_max])."""
+    lat_range, lon_range = [-90.0, 90.0], [-180.0, 180.0]
+    even = True
+    for char in gh:
+        idx = _BASE32.index(char)
+        for bit in (16, 8, 4, 2, 1):
+            if even:
+                mid = (lon_range[0] + lon_range[1]) / 2
+                if idx & bit:
+                    lon_range[0] = mid
+                else:
+                    lon_range[1] = mid
+            else:
+                mid = (lat_range[0] + lat_range[1]) / 2
+                if idx & bit:
+                    lat_range[0] = mid
+                else:
+                    lat_range[1] = mid
+            even = not even
+    return lat_range, lon_range
+
+
+def _geohash_neighbors(gh: str) -> set:
+    """
+    The cell itself plus its 8 neighbors, at the same precision as `gh`.
+    Per spec §8.2.1, a geohash-5 cell + its 8 neighbors always fully
+    covers a search radius up to ~4.9km, which is why /nearby's default
+    radiusM (2000) and this expansion are safe together.
+    """
+    lat_range, lon_range = _decode_geohash_bbox(gh)
+    center_lat = (lat_range[0] + lat_range[1]) / 2
+    center_lon = (lon_range[0] + lon_range[1]) / 2
+    lat_err = lat_range[1] - lat_range[0]
+    lon_err = lon_range[1] - lon_range[0]
+    precision = len(gh)
+    cells = set()
+    for dlat in (-1, 0, 1):
+        for dlon in (-1, 0, 1):
+            nlat = max(-90.0, min(90.0, center_lat + dlat * lat_err))
+            nlon = ((center_lon + dlon * lon_err + 180) % 360) - 180
+            cells.add(_encode_geohash(nlat, nlon, precision))
+    return cells
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in meters."""
+    r = 6_371_000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = (math.sin(dphi / 2) ** 2
+         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2)
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+# Spec's relative ordering (§7 Stage 6): VALIDATED > UNVALIDATED > SUSPECT;
+# INVALID excluded regardless of minQuality.
+QUALITY_RANK = {"INVALID": -1, "SUSPECT": 0, "UNVALIDATED": 1, "VALIDATED": 2}
+
+
+def get_nearby_readings(
+    lat: float, lon: float,
+    radius_m: int = 2000, max_age_s: int = 3600,
+    agent: Optional[str] = None, min_quality: str = "UNVALIDATED",
+    limit: int = 1, now_us: Optional[int] = None,
+) -> list:
+    """
+    Relevance-ranked nearby lookup (spec §8.2.1). The ranking formula
+    below — a blend of distance, freshness, and a quality multiplier —
+    is deliberately not part of the wire contract (§7 Stage 6: "the exact
+    scoring weights are an implementation detail"); only the parameters
+    and the general behavior ("closer+fresher+better-quality ranks
+    higher, no single factor dominates") are.
+    """
+    conn = _conn()
+    now_us = now_us if now_us is not None else int(time.time() * 1_000_000)
+    min_ts = now_us - int(max_age_s) * 1_000_000
+    min_rank = QUALITY_RANK.get((min_quality or "UNVALIDATED").upper(), 1)
+
+    center_gh = _encode_geohash(lat, lon, 5)
+    cells = _geohash_neighbors(center_gh)
+
+    clauses = ["deleted=0", "timestamp_us >= ?",
+               "latitude IS NOT NULL", "longitude IS NOT NULL"]
+    params: list = [min_ts]
+    cell_clause = " OR ".join(["geohash LIKE ?"] * len(cells))
+    clauses.append(f"({cell_clause})")
+    params.extend(c + "%" for c in cells)
+
+    where = " AND ".join(clauses)
+    rows = conn.execute(f"SELECT * FROM readings WHERE {where}", params).fetchall()
+    candidates = [_row_to_reading(r) for r in rows]
+
+    candidates = [
+        c for c in candidates
+        if QUALITY_RANK.get((c.get("qualityFlag") or "UNVALIDATED").upper(), 0) >= max(min_rank, 0)
+    ]
+
+    if agent:
+        agent_upper = agent.upper()
+        candidates = [
+            c for c in candidates
+            if any(a.get("agentId", "").upper() == agent_upper
+                   for a in c.get("agents", []))
+        ]
+
+    scored = []
+    for c in candidates:
+        dist_m = _haversine_m(lat, lon, c["latitude"], c["longitude"])
+        if dist_m > radius_m:
+            continue
+        age_s = max(0.0, (now_us - c["timestampUs"]) / 1_000_000)
+        distance_score = max(0.0, 1 - dist_m / radius_m) if radius_m > 0 else 0.0
+        freshness_score = max(0.0, 1 - age_s / max_age_s) if max_age_s > 0 else 0.0
+        quality_weight = {"VALIDATED": 1.15, "UNVALIDATED": 1.0, "SUSPECT": 0.6}.get(
+            c.get("qualityFlag"), 1.0
+        )
+        relevance = (0.5 * distance_score + 0.5 * freshness_score) * quality_weight
+        c["distanceM"] = round(dist_m, 1)
+        c["relevanceScore"] = round(relevance, 4)
+        scored.append(c)
+
+    scored.sort(key=lambda c: c["relevanceScore"], reverse=True)
+    return scored[:limit]
+
+
+# ─── Federation pull (spec §7 Stage 7, §8.2.2) ────────────────
+
+def get_readings_since(since_ts_us: int, limit: int = 500) -> tuple[list, int]:
+    """
+    Returns (readings, nextSinceTs) — readings created strictly after
+    since_ts_us, ordered oldest-first so a caller can resume from
+    nextSinceTs without gaps or dupes across paginated pulls.
+    """
+    conn = _conn()
+    limit = min(max(limit, 1), 2000)
+    rows = conn.execute(
+        "SELECT * FROM readings WHERE timestamp_us > ? AND deleted=0 "
+        "ORDER BY timestamp_us ASC LIMIT ?",
+        (since_ts_us, limit)
+    ).fetchall()
+    results = [_row_to_reading(r) for r in rows]
+    next_since_ts = results[-1]["timestampUs"] if results else since_ts_us
+    return results, next_since_ts
 
 
 def _row_to_reading(row: sqlite3.Row) -> dict:

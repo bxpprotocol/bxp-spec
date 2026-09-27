@@ -21,10 +21,11 @@
 12. [Governance & Versioning](#12-governance--versioning)
 13. [BXP Health Risk Index](#13-bxp-health-risk-index)
 14. [Compatibility Matrix](#14-compatibility-matrix)
-15. [Appendix A — Agent Reference](#appendix-a--complete-agent-reference)
-16. [Appendix B — Geohash Reference](#appendix-b--geohash-reference)
-17. [Appendix C — Error Codes](#appendix-c--error-codes)
-18. [Appendix D — Glossary](#appendix-d--glossary)
+15. [Conformance & Test Vectors](#15-conformance--test-vectors)
+16. [Appendix A — Agent Reference](#appendix-a--complete-agent-reference)
+17. [Appendix B — Geohash Reference](#appendix-b--geohash-reference)
+18. [Appendix C — Error Codes](#appendix-c--error-codes)
+19. [Appendix D — Glossary](#appendix-d--glossary)
 
 ---
 
@@ -128,14 +129,65 @@ The standard MUST grow without breaking existing implementations.
 All extensions use versioned namespaces. Backward compatibility
 is maintained across all MINOR versions.
 
+### 3.7 Conformance Model — what is normative
+
+Earlier drafts of this specification left it ambiguous which parts an
+independent implementation is required to reproduce byte-for-byte, and
+which parts are merely one way a node *might* choose to organize its
+own storage. That ambiguity is resolved here, explicitly, because it
+determines what "BXP-compliant" actually means.
+
+**Normative** (an implementation MUST get these exactly right to
+interoperate; conformance test vectors exist for these — see §15):
+
+- §5 The `.bxp` record — its JSON schema, its binary encoding, byte
+  layout, checksums, and the lossless JSON⇄binary conversion rule.
+- §5.5 Verification (canonical serialization, SHA-256 payload hash).
+- Versioning and compatibility rules (§3.6, §5.9, §12.2).
+- The Agent Schema (§6) — agent IDs, units, canonical value ranges.
+
+**Informative / recommended** (useful defaults a node or application
+MAY follow, but which carry no interoperability obligation — two
+compliant BXP implementations that disagree about these are both
+still compliant):
+
+- §4 the "BXP Volume" directory layout below. This describes one
+  reasonable way a *node* might index and cache records it has
+  collected — it is not a filesystem or database format that `.bxp`
+  itself must implement, and no `.bxp` file is required to reflect
+  this layout in any way.
+- §8 the REST API's exact route names beyond the wire payloads they
+  carry.
+- §11 example code.
+
+**Why this matters:** a `.bxp` file is one self-contained record —
+analogous to a `.png` or `.mp4` file, not to a directory tree. A
+sensor, an ESP32, a phone, and a BXP node all read and write the same
+`.bxp` bytes. What any of them do with those bytes afterwards —
+store them in a directory tree, a relational database, an S3 bucket,
+or nothing at all — is an application-layer decision, not part of the
+interoperability contract. Earlier text in this document (§4) blurred
+that line by describing the directory tree in normative-sounding
+language ("A BXP volume is a logical file system structure"); that
+framing is corrected below.
+
 ---
 
-## 4. File System Architecture
+## 4. Recommended Node Storage Layout (informative, non-normative)
 
-A BXP volume is a logical file system structure. It can be implemented
-on any physical storage: local disk, cloud object store (S3, GCS),
-distributed ledger, peer-to-peer network, or embedded flash memory.
-The logical structure remains identical regardless of substrate.
+This section describes one reasonable way a **BXP node** — a server,
+gateway, or application that accumulates many `.bxp` records — MAY
+organize them for its own indexing and retrieval. It is not part of
+the wire format, it is not required for conformance, and no other
+implementation needs to know or care whether a given node uses it.
+A node MAY instead use a SQL database (as `reference-server/` does),
+a key-value store, flat files, or anything else, provided it can
+still produce and accept valid `.bxp` records (§5) at its boundary.
+
+It can be implemented on any physical storage: local disk, cloud
+object store (S3, GCS), a relational database, or embedded flash.
+The logical structure below is a naming convention, not a required
+schema.
 
 ### 4.1 Root Structure
 
@@ -346,6 +398,58 @@ both and MUST be capable of lossless conversion between them.
 }
 ```
 
+### 5.5.1 Calibration & Correction (per-agent, OPTIONAL)
+
+This is deliberately called out on its own because it's where a large,
+well-documented, real-world failure mode lives: low-cost PM2.5 sensors
+(the optical scattering sensors used in most Tier 1/2 hardware) read
+high in humid conditions and need a correction against a colocated
+reference instrument to be trustworthy — mixing corrected and
+uncorrected values in one dataset without saying which is which is a
+known source of bad air-quality decisions. BXP does not mandate any
+particular correction algorithm, but it does mandate that if a value
+*has* been corrected, that fact travels with the value:
+
+```json
+{
+  "agentId": "PM2_5",
+  "value": 31.8,
+  "unit": "ug/m3",
+  "uncertainty": 4.2,
+  "method": "optical",
+  "belowLod": false,
+  "correction": {
+    "applied": true,
+    "rawValue": 47.3,
+    "model": "epa_pm25_humidity_v1",
+    "referenceDeviceUuid": "9c1e2b0a-....-....-....-............",
+    "correctedAt": 1710000012000000
+  }
+}
+```
+
+- If `correction` is omitted, the value is exactly what the sensor
+  reported (`correction.applied` is implicitly `false`). This MUST be
+  the default assumption a reader makes about an agent entry with no
+  `correction` object.
+- If `correction.applied` is `true`, `value` is the corrected value
+  and `rawValue` SHOULD be included so nothing is destroyed —
+  a downstream consumer that trusts a different correction model can
+  recover the original reading.
+- `model` is a free-text identifier (not enumerated here on purpose;
+  correction science moves faster than protocol revisions) but SHOULD
+  be documented wherever the device or node publishes its methodology.
+- `referenceDeviceUuid`, when present, names the reference-grade
+  device (Tier 3, see below) this correction was derived from or
+  colocated against, giving an auditable link from a Tier 1/2 reading
+  back to the reference data that made it trustworthy.
+- A writer MUST NOT set `quality.flag` to `VALIDATED` for a Tier 1/2
+  source unless either `correction.applied` is `true` or an equally
+  explicit `qcMethod` justifies it in `quality.notes` — an unvalidated
+  raw sensor value being labeled VALIDATED just because someone judged
+  it was "probably fine" is exactly the kind of quiet drift this field
+  exists to prevent.
+
 ### 5.4 Container Schema
 
 A BXP Container is a portable, self-verifying file bundling one
@@ -389,6 +493,81 @@ Verification MUST follow this exact process:
 | UNVALIDATED | 1 | Raw data, no QC applied |
 | SUSPECT | 2 | Failed one or more QC checks |
 | INVALID | 3 | Known bad data — do not use |
+
+### 5.7 Unknown and Future Fields
+
+This was previously unspecified; it is resolved as follows so that
+MINOR-version growth (§3.6) is actually safe in practice, not just in
+principle:
+
+- A conformant reader encountering a JSON payload key it does not
+  recognize MUST ignore that key and continue processing the rest of
+  the record. It MUST NOT reject the record solely because of an
+  unrecognized key.
+- A conformant reader/writer that round-trips a record it does not
+  fully understand (e.g. a relay or federation node) SHOULD preserve
+  unrecognized top-level keys unchanged, so that newer fields survive
+  passing through older infrastructure. Fields inside `agents[]`
+  entries follow the same rule per-entry.
+- New REQUIRED fields MUST NOT be introduced within a MAJOR version.
+  Only OPTIONAL fields may be added in a MINOR version (§12.2).
+- A reader MUST NOT infer meaning from an unrecognized field; "ignore
+  and preserve" is the entire contract. Interpreting an unknown field
+  is only safe once it is documented in a released MINOR version.
+
+### 5.8 Version Negotiation and Compatibility
+
+The binary header carries Major and Minor version separately (§5.2)
+specifically so this check can be done without parsing JSON:
+
+- **Major version mismatch** (file's major ≠ implementation's
+  supported major): the reader MUST refuse to interpret the payload
+  as a normal record. It MAY still report the file's declared version
+  back to the caller (e.g. for a diagnostic message), but MUST NOT
+  guess at the payload's structure.
+- **Minor version higher than supported** (same major, file's minor >
+  implementation's supported minor): the reader MUST still parse the
+  record, per §5.7 — newer optional fields it doesn't recognize are
+  ignored, not fatal.
+- **Minor version lower than supported**: always valid; older minor
+  versions never remove fields, only add them.
+- There is deliberately no PATCH component in the binary header.
+  PATCH-level changes to this specification (typo fixes, clarified
+  wording, tightened prose) never change wire bytes or parsing
+  behavior — if a change would alter what bytes are valid or how they
+  are interpreted, it is at minimum a MINOR change and must bump the
+  minor version field.
+
+### 5.9 Extension Mechanism
+
+Implementations that need to carry data this specification does not
+yet define MUST do so under a single top-level `"ext"` object, keyed
+by a short reverse-namespace string, e.g.:
+
+```json
+"ext": {
+  "org.example.mycompany": { "calibrationBatch": "B-2026-04" }
+}
+```
+
+This keeps experimental or vendor-specific data from colliding with
+future officially-assigned field names, while remaining subject to
+the same ignore-and-preserve rule as any other unrecognized field
+(§5.7). Fields MUST NOT be added directly at the record's top level
+outside of an RFC-accepted MINOR version (§12.3); use `ext` instead.
+
+### 5.10 Encryption (flag bit1) — deliberately unspecified
+
+Flag bit1 in the binary header is reserved to indicate an encrypted
+payload, but this specification does not yet pin down a cipher suite
+or key-exchange mechanism, and no BXP implementation should claim to
+support it. Setting bit1 without a ratified encryption RFC is a
+non-conformant file. `sdk/python/bxp_binary.py` reflects this
+honestly: it raises rather than silently emitting a non-interoperable
+"encrypted" file. Encrypting a whole `.bxp` file at rest using
+external, off-the-shelf tooling (disk encryption, an encrypted
+archive, etc.) remains a fine and fully conformant thing to do — it
+just isn't *this* flag.
 
 ---
 
@@ -505,6 +684,19 @@ All tiers produce valid BXP data. Quality flags reflect reliability.
 A network of 10,000 Tier 1 sources provides more spatial coverage
 than 10 Tier 3 sources, even accounting for individual error.
 
+This is not a hypothetical trade-off: as of 2026, funding for
+government-operated reference-grade air monitoring networks has been
+shrinking in real, documented ways (site closures, reduced sampling
+frequency, discontinued public feeds), while low-cost sensor
+deployments (PurpleAir-style optical sensors, community and
+university networks across sub-Saharan Africa and elsewhere) have
+become the fastest-growing source of *coverage*, if not of
+individually reference-grade accuracy. BXP's job is not to pretend
+Tier 1/2 data is as good as Tier 3 — it is to carry the difference
+faithfully (§5.5.1) so an application built on BXP can make an honest
+trade-off between coverage and precision, instead of being forced to
+either discard low-cost data entirely or trust it uncritically.
+
 **Required Fields for a Valid Reading:**
 
 - `deviceUuid` — REQUIRED
@@ -557,6 +749,62 @@ qualitative human observations alongside quantitative data.
 - Event tags: `open_burning`, `traffic_jam`, `industrial_accident`
 - Photo attachments with GPS EXIF metadata
 
+### Stage 6 — DISCOVER
+
+A person's device does not need its own sensor to benefit from BXP.
+If a Tier 1–3 source recorded a reading nearby, recently, a BXP node
+SHOULD be able to surface it as the most *relevant* available
+observation — not simply the nearest row in a database.
+
+**Relevance is a function of, at minimum:**
+
+| Factor | Effect |
+|--------|--------|
+| Distance from query point | Closer is more relevant, up to `radiusM` |
+| Freshness | Newer is more relevant, up to `maxAgeS` |
+| Quality flag | VALIDATED > UNVALIDATED > SUSPECT; INVALID excluded |
+| Uncertainty | Lower `uncertainty` on the agent value is more relevant |
+| Source tier | Tier 3 (reference-grade) may be weighted above Tier 1 |
+
+No single factor should dominate to the point of returning a
+technically-nearest but stale or low-quality reading over a
+slightly-farther fresh, validated one. §8.2.1 defines the concrete
+query surface for this; the ranking function itself is intentionally
+not frozen into the wire protocol, since it is a quality-of-result
+concern, not an interoperability concern — two nodes may legitimately
+rank differently and both be BXP-compliant.
+
+### Stage 7 — FEDERATE
+
+A single BXP node is useful. A network of independently operated BXP
+nodes, each able to replicate from the others, is what makes "a
+sensor in Accra" reachable from "a hospital in Nairobi" (§1.1).
+
+At this stage, BXP defines only the minimum viable federation
+primitive — a pull-based sync — deliberately leaving harder problems
+for later RFCs rather than guessing at them now:
+
+- **Node identity & discovery**: `POST /nodes/announce` lets a node
+  register itself with a peer (§8.2); there is no discovery protocol
+  beyond direct announcement yet (e.g. no DHT, no well-known registry).
+- **Replication**: `GET /sync?sinceTs=...` (§8.2.2) lets a node pull
+  everything newer than its last-seen watermark from a peer. This is
+  enough to build a full mesh by having every node periodically sync
+  from every other node it knows about (from `GET /nodes`).
+- **Provenance**: every replicated reading carries its originating
+  `nodeId`, so a record's chain of custody survives being copied
+  between nodes.
+- **Deliberately NOT yet specified** — trust/reputation between
+  nodes, deduplication policy when the same physical reading arrives
+  via two paths, conflict resolution for edited/deleted records,
+  partial-connectivity/offline-node backfill, and query routing
+  across a federation (asking node A to transparently include node
+  B's data in a `/nearby` response). These are real problems; they
+  are left open rather than answered with an untested design, because
+  a wrong answer here is expensive to walk back once nodes depend on
+  it. A future RFC (§12.3) should address them once real multi-node
+  deployments surface actual failure modes to design against.
+
 ---
 
 ## 8. REST API Specification
@@ -569,23 +817,76 @@ https://[host]/bxp/v2/
 
 ### 8.2 Endpoints
 
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| GET | `/locations/{geohash}/current` | Current readings for location | No |
-| GET | `/locations/{geohash}/history` | Historical readings | No |
-| GET | `/locations/{geohash}/agents/{agentId}` | Specific agent at location | No |
-| POST | `/readings` | Submit one or more readings | Device Token |
-| GET | `/readings/{readingId}` | Get reading by ID | No |
-| GET | `/agents` | List all supported agents | No |
-| GET | `/agents/{agentId}` | Full agent specification | No |
-| POST | `/devices/register` | Register a new device or source | API Key |
-| GET | `/devices/{uuid}` | Get device metadata | Device Token |
-| POST | `/devices/{uuid}/calibration` | Submit calibration record | Device Token |
-| GET | `/alerts` | Active alerts for a location | No |
-| POST | `/community/reports` | Submit community report | User Token |
-| GET | `/search` | Search by bounding box, time, agent | No |
-| GET | `/stats/{geohash}` | Statistical summary for location | No |
-| DELETE | `/persons/{hash}` | Permanently delete personal records | User Token |
+Route names are informative (§3.7) — the payload shapes they carry
+are what implementations must agree on. The table below has been
+reconciled against `reference-server/`, the actual reference
+implementation, which is the one that previously drifted from this
+document. Columns marked **Status: planned** describe endpoints this
+specification recommends but which the reference server does not yet
+implement; treat those as a roadmap, not a claim of what exists today.
+
+| Method | Endpoint | Description | Auth | Status |
+|--------|----------|-------------|------|--------|
+| GET | `/bxp/v2/health` | Liveness/readiness check | No | Implemented |
+| GET | `/bxp/v2/readings` | List/query readings (geohash, time range, agent, quality) | No | Implemented |
+| POST | `/bxp/v2/readings` | Submit one or more readings (JSON or binary `.bxp` body) | Device Token | Implemented |
+| GET | `/bxp/v2/readings/{readingId}` | Get reading by ID (`?format=binary` for `.bxp`) | No | Implemented |
+| DELETE | `/bxp/v2/readings/{readingId}` | Delete a reading, with deletion proof | User/Device Token | Implemented |
+| GET | `/bxp/v2/readings/{readingId}/verify` | Re-run §5.5 verification, return status | No | Implemented |
+| GET | `/bxp/v2/locations/{geohash}/latest` | Most recent reading at a location | No | Implemented |
+| GET | `/bxp/v2/locations/{geohash}/history` | Historical readings at a location | No | Implemented |
+| GET | `/bxp/v2/locations/{geohash}/aggregate` | Statistical summary for a location | No | Implemented |
+| GET | `/bxp/v2/nearby` | **New (§7 Stage 6):** most relevant observation(s) near a lat/lon, ranked by distance, freshness and quality — see §8.2.1 | No | Implemented |
+| GET | `/bxp/v2/search` | Search by bounding box, time, agent | No | Implemented |
+| POST | `/bxp/v2/community/reports` | Submit community report | User Token | Implemented |
+| GET | `/bxp/v2/community/reports` | List community reports | No | Implemented |
+| POST | `/bxp/v2/devices/register` | Register a new device or source | API Key | Implemented |
+| GET | `/bxp/v2/devices/{uuid}` | Get device metadata | Device Token | Implemented |
+| GET | `/bxp/v2/nodes` | List known federated nodes | No | Implemented |
+| POST | `/bxp/v2/nodes/announce` | Announce this node to a peer | No | Implemented |
+| GET | `/bxp/v2/sync` | **New (§7 Stage 7):** pull readings created since a watermark, for federation replication — see §8.2.2 | Node Token | Implemented |
+| GET | `/bxp/v2/agents` | List all supported agents | No | Planned |
+| GET | `/bxp/v2/agents/{agentId}` | Full agent specification | No | Planned |
+| POST | `/bxp/v2/devices/{uuid}/calibration` | Submit calibration record | Device Token | Planned |
+| GET | `/bxp/v2/alerts` | Active alerts for a location | No | Planned |
+| DELETE | `/bxp/v2/persons/{hash}` | Permanently delete personal records | User Token | Planned |
+
+#### 8.2.1 `GET /bxp/v2/nearby` — relevance-ranked lookup
+
+This is the endpoint behind the "walking with no sensor of your own"
+use case (§7 Stage 6): the caller wants the single best available
+observation near them, not an arbitrary row from an exact grid cell.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|--------------|
+| `lat`, `lon` | float | required | WGS84 query point |
+| `radiusM` | integer | 2000 | Search radius in meters |
+| `maxAgeS` | integer | 3600 | Discard readings older than this |
+| `agent` | string | any | Restrict to one agent ID (e.g. `PM2_5`) |
+| `minQuality` | enum | `UNVALIDATED` | Minimum acceptable quality flag |
+| `limit` | integer | 1 | Number of ranked candidates to return |
+
+Candidates are found via geohash-prefix expansion (the query point's
+geohash-5 cell and its 8 neighbors, which always fully covers a
+radius up to ~4.9 km — see Appendix B), filtered to `radiusM` using
+true great-circle distance, and ranked by a relevance score that
+combines recency, distance, and quality rather than any single one of
+these alone. A field measurement 3 minutes old and 400m away should
+usually outrank one 55 minutes old and 50m away. The exact scoring
+weights are an implementation detail (see
+`reference-server/database.py::get_nearby_readings`); the contract is
+the ranking *behavior*, not a fixed formula, since better ranking
+heuristics are expected to evolve without breaking the API shape.
+
+#### 8.2.2 `GET /bxp/v2/sync` — federation pull
+
+Query parameters: `sinceTs` (int64, microseconds — return readings
+created after this watermark), `limit` (default 500, max 2000). The
+response includes each reading's originating `nodeId` (provenance,
+§7 Stage 6) and a `nextSinceTs` cursor for the caller's next call.
+This is the minimum operation a second node needs in order to
+replicate — see §"Federation" notes in §12 for what is deliberately
+*not* yet specified (trust, conflict resolution, dedup policy).
 
 ### 8.3 Query Parameters
 
@@ -1181,6 +1482,65 @@ print(f"BXP_HRI: {hri}")
 | IEC 62484 | International Electrotechnical Commission | BXP binary format compatible with IEC sensor data standard. |
 | Schema.org | W3C Community Group | BXP JSON uses Schema.org vocabulary where applicable. |
 | GDPR | European Union | Privacy framework designed for full compliance. |
+
+---
+
+## 15. Conformance & Test Vectors
+
+An implementation is BXP-conformant for the native format (§3.7) if it
+produces and accepts byte-identical `.bxp` files for the same logical
+record as the reference vectors in `/conformance/vectors/`.
+
+### 15.1 What the vector suite covers
+
+- **Valid vectors**: a fixed set of records (minimal reading, full
+  reading with all optional fields, aggregate, device, each file
+  type, each flag combination) encoded once by the Python reference
+  encoder and checked into the repository as golden `.bxp` files. Any
+  implementation's decoder MUST reproduce the same record from these
+  bytes. For **uncompressed** vectors, any implementation's encoder,
+  given the same input record, MUST also reproduce the exact same
+  bytes (encoding is fully deterministic there — sorted JSON keys,
+  fixed separators, no encode-time-generated values). For
+  **compressed** vectors, only the decoded record is required to
+  match exactly; the compressed byte stream itself is not required to
+  be bit-identical across independent gzip implementations (DEFLATE
+  does not guarantee identical output across libraries even for
+  identical input and mtime), so conformance there is defined as
+  round-trip correctness, not byte-for-byte re-encoding.
+- **Malformed vectors**: bad magic number, truncated header, truncated
+  payload, corrupted header checksum, corrupted payload checksum, and
+  an unsupported major version. Every conformant decoder MUST reject
+  each of these with an error (not a crash, not a silently-wrong
+  parse) when run with verification enabled.
+- **`manifest.json`** describes every vector: its filename, whether it
+  is expected to decode successfully, and if so the expected record
+  and header fields; if not, which check is expected to fail.
+
+### 15.2 Running the suite
+
+Each implementation ships a small runner that reads `manifest.json`
+and checks its own encoder/decoder against it:
+
+```
+python3 conformance/verify_python.py
+node    conformance/verify_typescript.mjs
+./conformance/c/bxp_conformance          # built from embedded/c/
+```
+
+All three currently pass against the same vector files — this is the
+concrete evidence that the Python, TypeScript, and embedded-C
+implementations agree byte-for-byte on the native format, independent
+of the HTTP server or any single SDK's internal representation.
+
+### 15.3 Adding a vector
+
+New edge cases (an additional flag combination, a boundary timestamp,
+a newly-discovered malformed-input class) should be added as a new
+file under `conformance/vectors/` plus a corresponding entry in
+`manifest.json`, generated via `conformance/generate_vectors.py` so
+every vector's provenance (which encoder, which inputs) stays
+reproducible.
 
 ---
 

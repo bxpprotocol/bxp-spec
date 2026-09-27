@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "lib": ["ES2020", "DOM"]
   },
-  "include": ["bxp-sdk.ts"],
+  "include": ["bxp-sdk.ts", "bxp-binary.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,6 +1,7 @@
 {
   "name": "bxp-sdk",
   "version": "2.1.0",
+  "type": "module",
   "description": "BXP Protocol SDK — Breathe Exposure Protocol for atmospheric exposure data",
   "main": "dist/bxp-sdk.js",
   "module": "dist/bxp-sdk.esm.js",
@@ -15,7 +16,9 @@
   "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc && rollup -c",
-    "test":  "node --experimental-vm-modules node_modules/.bin/jest"
+    "test":  "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:binary": "node --test tests/bxp-binary.test.ts",
+    "conformance": "node ../../conformance/verify_typescript.mjs"
   },
   "keywords": ["air-quality", "atmospheric", "bxp", "iot", "health", "sensor"],
   "author": "BXP Protocol <bxpprotocol@proton.me>",

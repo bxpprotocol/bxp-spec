@@ -1,0 +1,332 @@
+{
+  "vectors": [
+    {
+      "file": "minimal_reading.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "reading",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "reading",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "geohash": "s1v0g",
+        "timestampUs": 1710000000000000,
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "value": 47.3,
+            "unit": "ug/m3"
+          }
+        ],
+        "quality": {
+          "flag": "UNVALIDATED"
+        }
+      }
+    },
+    {
+      "file": "full_reading.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "reading",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "reading",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "geohash": "s1v0g",
+        "latitude": 5.5571,
+        "longitude": -0.1969,
+        "altitudeM": 61.0,
+        "timestampUs": 1710000000000000,
+        "durationS": 60,
+        "indoorOutdoor": "outdoor",
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "value": 47.3,
+            "unit": "ug/m3",
+            "uncertainty": 3.1,
+            "method": "optical",
+            "belowLod": false
+          },
+          {
+            "agentId": "CO",
+            "value": 1.2,
+            "unit": "ppm",
+            "uncertainty": 0.1,
+            "method": "electrochemical",
+            "belowLod": false
+          }
+        ],
+        "context": {
+          "temperatureC": 28.4,
+          "humidityPct": 72.1,
+          "pressureHpa": 1012.3,
+          "windSpeedMs": 2.1,
+          "windDirDeg": 220
+        },
+        "quality": {
+          "flag": "VALIDATED",
+          "confidence": 0.94,
+          "qcMethod": "automated-v2",
+          "notes": ""
+        },
+        "signature": ""
+      }
+    },
+    {
+      "file": "full_reading_compressed.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "reading",
+      "compressed": true,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "reading",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "geohash": "s1v0g",
+        "latitude": 5.5571,
+        "longitude": -0.1969,
+        "altitudeM": 61.0,
+        "timestampUs": 1710000000000000,
+        "durationS": 60,
+        "indoorOutdoor": "outdoor",
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "value": 47.3,
+            "unit": "ug/m3",
+            "uncertainty": 3.1,
+            "method": "optical",
+            "belowLod": false
+          },
+          {
+            "agentId": "CO",
+            "value": 1.2,
+            "unit": "ppm",
+            "uncertainty": 0.1,
+            "method": "electrochemical",
+            "belowLod": false
+          }
+        ],
+        "context": {
+          "temperatureC": 28.4,
+          "humidityPct": 72.1,
+          "pressureHpa": 1012.3,
+          "windSpeedMs": 2.1,
+          "windDirDeg": 220
+        },
+        "quality": {
+          "flag": "VALIDATED",
+          "confidence": 0.94,
+          "qcMethod": "automated-v2",
+          "notes": ""
+        },
+        "signature": ""
+      }
+    },
+    {
+      "file": "aggregate.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "aggregate",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "aggregate",
+        "geohash": "s1v0g",
+        "timestampUs": 1710000000000000,
+        "period": "hourly",
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "mean": 44.1,
+            "min": 12.0,
+            "max": 88.7,
+            "count": 12
+          }
+        ]
+      }
+    },
+    {
+      "file": "device.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "device",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "device",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "timestampUs": 1710000000000000,
+        "sourceType": "phone_app",
+        "capabilities": [
+          "PM2_5",
+          "TEMP",
+          "RH"
+        ],
+        "accuracyClass": "tier1"
+      }
+    },
+    {
+      "file": "agent.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "agent",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "agent",
+        "timestampUs": 1710000000000000,
+        "agentId": "PM2_5",
+        "unit": "ug/m3",
+        "category": "particulates"
+      }
+    },
+    {
+      "file": "alert.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "alert",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "alert",
+        "timestampUs": 1710000000000000,
+        "geohash": "s1v0g",
+        "level": "HIGH",
+        "bxpHri": 68.2
+      }
+    },
+    {
+      "file": "meta.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "meta",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "meta",
+        "timestampUs": 1710000000000000,
+        "volumeId": "example-node-01",
+        "schemaVersion": "2.0"
+      }
+    },
+    {
+      "file": "future_minor_version_with_ext.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "reading",
+      "compressed": false,
+      "record": {
+        "bxpVersion": "2.99",
+        "fileType": "reading",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "geohash": "s1v0g",
+        "timestampUs": 1710000000000000,
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "value": 47.3,
+            "unit": "ug/m3"
+          }
+        ],
+        "quality": {
+          "flag": "UNVALIDATED"
+        },
+        "ext": {
+          "org.example.mycompany": {
+            "calibrationBatch": "B-2026-04"
+          }
+        }
+      }
+    },
+    {
+      "file": "signed_draft_flags.bxp",
+      "expectValid": true,
+      "expectMajorVersionSupported": true,
+      "fileType": "reading",
+      "compressed": false,
+      "expectFlags": {
+        "compressed": false,
+        "encrypted": false,
+        "signed": true,
+        "draft": true
+      },
+      "record": {
+        "bxpVersion": "2.0",
+        "fileType": "reading",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "geohash": "s1v0g",
+        "timestampUs": 1710000000000000,
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "value": 47.3,
+            "unit": "ug/m3"
+          }
+        ],
+        "quality": {
+          "flag": "UNVALIDATED"
+        }
+      }
+    },
+    {
+      "file": "unsupported_major_version.bxp",
+      "expectValid": false,
+      "expectMajorVersionSupported": false,
+      "reason": "major version 99 is not supported major version 2",
+      "record": {
+        "bxpVersion": "99.0",
+        "fileType": "reading",
+        "deviceUuid": "550e8400-e29b-41d4-a716-446655440000",
+        "geohash": "s1v0g",
+        "timestampUs": 1710000000000000,
+        "agents": [
+          {
+            "agentId": "PM2_5",
+            "value": 47.3,
+            "unit": "ug/m3"
+          }
+        ],
+        "quality": {
+          "flag": "UNVALIDATED"
+        }
+      }
+    },
+    {
+      "file": "bad_magic.bxp",
+      "expectValid": false,
+      "reason": "magic number corrupted"
+    },
+    {
+      "file": "truncated_header.bxp",
+      "expectValid": false,
+      "reason": "file shorter than the 32-byte fixed header"
+    },
+    {
+      "file": "truncated_payload.bxp",
+      "expectValid": false,
+      "reason": "payload shorter than the header's declared payload length"
+    },
+    {
+      "file": "bad_header_checksum.bxp",
+      "expectValid": false,
+      "reason": "header CRC32 does not match header bytes"
+    },
+    {
+      "file": "bad_payload_checksum.bxp",
+      "expectValid": false,
+      "reason": "payload CRC32 does not match payload bytes"
+    },
+    {
+      "file": "corrupted_payload_byte.bxp",
+      "expectValid": false,
+      "reason": "payload byte flipped after encoding; payload CRC32 mismatch"
+    }
+  ],
+  "headerSize": 32,
+  "magicHex": "0x42585000",
+  "supportedMajorVersion": 2
+}

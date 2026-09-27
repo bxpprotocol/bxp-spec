@@ -66,6 +66,7 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────
 
 BXP_VERSION = "2.0"
+SUPPORTED_MAJOR_VERSION = int(BXP_VERSION.split(".")[0])
 
 WHO_THRESHOLDS = {
     "PM2_5": 15.0, "PM10": 45.0, "NO2": 25.0,
@@ -307,7 +308,14 @@ def _build_bxp_record(data: dict, device_uuid: Optional[str] = None) -> dict:
     if geohash and len(geohash) < 5:
         raise ValueError(f"Geohash precision too low: {len(geohash)} (minimum 5)")
 
-    agents = list(data.get("agents") or [])
+    agents = [dict(a) for a in (data.get("agents") or [])]
+    for a in agents:
+        aid = a.get("agentId", "?")
+        if "value" not in a or a.get("value") is None:
+            raise ValueError(f"Agent {aid}: missing required 'value'")
+        val = float(a["value"])
+        if val < 0:
+            raise ValueError(f"{aid}: value must be non-negative, got {val}")
     shorthand = {
         "pm25": "PM2_5", "pm10": "PM10", "no2": "NO2",
         "o3": "O3",      "co": "CO",     "so2": "SO2",
@@ -552,8 +560,31 @@ def validate_bxp_record(record: dict) -> dict:
         warnings.append("No payloadHash — integrity unverifiable")
 
     ver = record.get("bxpVersion", "")
-    if ver != "2.0":
-        warnings.append(f"bxpVersion is '{ver}', expected '2.0'")
+    ver_major = ver.split(".")[0] if ver else ""
+    if ver_major and ver_major != str(SUPPORTED_MAJOR_VERSION):
+        errors.append(
+            f"bxpVersion '{ver}' has major version {ver_major}, but this "
+            f"implementation supports major version {SUPPORTED_MAJOR_VERSION} "
+            "(SPEC.md §5.8 — a major-version mismatch is not just a warning)"
+        )
+    # A higher minor version than this SDK currently knows about is fine
+    # per SPEC.md §5.8 (unrecognized optional fields are simply ignored) —
+    # it is deliberately NOT flagged as a warning here.
+
+    quality = record.get("quality") or {}
+    if quality.get("flag") == "VALIDATED":
+        any_correction_applied = any(
+            (a.get("correction") or {}).get("applied") for a in agents
+        )
+        explicit_qc = quality.get("qcMethod") and quality["qcMethod"] != "bxp-sdk-auto"
+        if not any_correction_applied and not explicit_qc:
+            warnings.append(
+                "quality.flag is VALIDATED but no agent shows an applied "
+                "correction and quality.qcMethod gives no explicit "
+                "justification — per SPEC.md §5.5.1, VALIDATED should be "
+                "backed by either a correction against a reference "
+                "instrument or a stated QC method, not asserted on its own"
+            )
 
     valid = len(errors) == 0
     if valid and not warnings:
@@ -786,6 +817,32 @@ class BXPClient:
             "indoorOutdoor": "indoor" if indoor else "outdoor",
         }]}
 
+        resp = self._request("POST", "/bxp/v2/readings", body)
+        if resp.get("status") == "ok":
+            reading = resp["data"]["readings"][0]
+            return {
+                "readingId":   reading.get("readingId"),
+                "geohash":     reading.get("geohash"),
+                "bxpHri":      reading.get("bxpHri"),
+                "level":       reading.get("bxpHriLevel"),
+                "qualityFlag": reading.get("qualityFlag"),
+                "success":     True
+            }
+        return {"success": False, "error": resp.get("errors") or resp.get("error")}
+
+    def submit_record(self, record: dict) -> dict:
+        """
+        Submit an already-fully-built BXP record as-is (deviceUuid,
+        timestampUs, agents, quality, etc. all exactly as given), unlike
+        submit() which is a shorthand that always uses this client's own
+        device_uuid and the current time.
+
+        This is what an importer/bridge (e.g. integrations/openaq_import.py,
+        integrations/mqtt_bridge.py for historical/backfilled data) needs:
+        it must preserve the *original* observation's timestamp and
+        provenance rather than reporting "now" as when the reading happened.
+        """
+        body = {"readings": [record]}
         resp = self._request("POST", "/bxp/v2/readings", body)
         if resp.get("status") == "ok":
             reading = resp["data"]["readings"][0]
