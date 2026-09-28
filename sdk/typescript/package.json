@@ -2,25 +2,34 @@
   "name": "bxp-sdk",
   "version": "2.1.0",
   "type": "module",
-  "description": "BXP Protocol SDK — Breathe Exposure Protocol for atmospheric exposure data",
+  "description": "BXP Protocol SDK \u2014 Breathe Exposure Protocol for atmospheric exposure data",
   "main": "dist/bxp-sdk.js",
-  "module": "dist/bxp-sdk.esm.js",
+  "module": "dist/bxp-sdk.js",
   "types": "dist/bxp-sdk.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/bxp-sdk.esm.js",
-      "require": "./dist/bxp-sdk.js",
-      "types": "./dist/bxp-sdk.d.ts"
+      "types": "./dist/bxp-sdk.d.ts",
+      "import": "./dist/bxp-sdk.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc && rollup -c",
-    "test":  "node --experimental-vm-modules node_modules/.bin/jest",
-    "test:binary": "node --test tests/bxp-binary.test.ts",
-    "conformance": "node ../../conformance/verify_typescript.mjs"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"tests/*.test.ts\"",
+    "conformance": "node ../../conformance/verify_typescript.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run conformance && npm run build"
   },
-  "keywords": ["air-quality", "atmospheric", "bxp", "iot", "health", "sensor"],
+  "keywords": [
+    "air-quality",
+    "atmospheric",
+    "bxp",
+    "iot",
+    "health",
+    "sensor"
+  ],
   "author": "BXP Protocol <bxpprotocol@proton.me>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bxpprotocol/bxp-spec",
@@ -30,12 +39,9 @@
   },
   "devDependencies": {
     "typescript": "^5.4.0",
-    "rollup": "^4.0.0",
-    "@rollup/plugin-typescript": "^11.0.0",
-    "jest": "^29.0.0",
-    "@types/jest": "^29.0.0",
-    "ts-jest": "^29.0.0",
     "@types/node": "^20.0.0"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

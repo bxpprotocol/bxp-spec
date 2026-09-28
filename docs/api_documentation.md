@@ -1,7 +1,7 @@
 # BXP API Reference v2.0
 
-Base URL: `http://localhost:8000/bxp/v2/`
-Interactive docs: `http://localhost:8000/docs`
+Base URL: `http://localhost:5000/bxp/v2/`
+Interactive docs: `http://localhost:5000/docs`
 
 All responses use the standard BXP envelope:
 ```json
@@ -64,10 +64,15 @@ Submit one or more readings.
 Get all readings with optional filters.
 
 **Query parameters:**
-- `geohash` — filter by geohash prefix (e.g. `s1v0`)
+- `geohash` — filter by geohash prefix (e.g. `s1v0`); must be valid geohash characters
+- `agent` — only readings that include this agent (e.g. `PM2_5`)
 - `quality` — filter by quality flag (`VALIDATED`, `UNVALIDATED`, etc.)
-- `limit` — max records (default 100, max 1000)
-- `offset` — pagination offset
+- `from_ts`, `to_ts` — observation time range, microseconds
+- `limit` — max records (default 50, 1–200; out of range is a 422)
+- `offset` — pagination offset (≥ 0)
+- `format=binary` — return one native `.bxp` container instead of JSON
+
+`total` in the response counts every match, so `offset`/`limit` paging is consistent with any filter.
 
 **Example:** `GET /bxp/v2/readings?geohash=s1v0&limit=10`
 
@@ -168,6 +173,50 @@ Calculate BXP_HRI from agent values.
   }
 }
 ```
+
+---
+
+## GET /nearby
+
+The closest *useful* observation for someone with no sensor of their own. Candidates
+within `radiusM` and `maxAgeS` are ranked by distance, freshness and quality together,
+so a fresh validated reading 400 m away can beat a stale one 50 m away.
+
+**Query parameters:** `lat`, `lon` (required); `radiusM` (default 2000, 1–50000);
+`maxAgeS` (default 3600); `agent`; `minQuality` (`SUSPECT`, `UNVALIDATED` (default),
+`VALIDATED`; `INVALID` is never returned); `limit` (default 1, max 50).
+
+**Example:** `GET /bxp/v2/nearby?lat=5.6037&lon=-0.187&radiusM=1500&agent=PM2_5`
+
+Each result carries `distanceM` and `relevanceScore`. Anonymous submissions are stored
+at geohash-5 precision (about 5 km), so their reported position is a cell centre; only
+readings from registered devices resolve to metre-level positions.
+
+---
+
+## DELETE /readings/{id}
+
+Requires `Authorization: Bearer <device token>`. Only the device that submitted the
+reading may delete it (403 otherwise). The reading's content is erased and cannot be
+recovered; a content-free tombstone remains so the deletion replicates. Returns a
+`deletionProof`.
+
+---
+
+## GET /sync
+
+Federation pull: the changes on this node after a cursor, oldest first.
+
+**Query parameters:** `since` (opaque cursor, default `0`), `limit` (default 500, max 2000).
+
+**Response:** `data.readings` plus `nextCursor`. Store `nextCursor` and send it as `since`
+next time. The cursor is an ingest sequence, **not** a timestamp: late-arriving readings
+are never skipped and a bogus timestamp cannot stall replication.
+
+A deleted reading arrives as `{"readingId": "...", "deleted": true, "deletionProof": "..."}`.
+A replica must erase its copy. Every reading carries its origin `nodeId`.
+
+If the node sets `BXP_NODE_SYNC_TOKEN`, send `Authorization: Bearer <token>`.
 
 ---
 

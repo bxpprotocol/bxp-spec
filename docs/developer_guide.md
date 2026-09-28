@@ -10,8 +10,8 @@ pip install -r requirements.txt
 python server.py
 ```
 
-Server runs at http://localhost:8000
-API docs at http://localhost:8000/docs
+Server runs at http://localhost:5000
+API docs at http://localhost:5000/docs
 
 ### 2. Generate your first .bxp file
 
@@ -30,14 +30,14 @@ python bxp_cli.py validate reading_20260307_100000.bxp.json
 
 ```bash
 python bxp_cli.py submit \
-    --server http://localhost:8000 \
+    --server http://localhost:5000 \
     --file reading_20260307_100000.bxp.json
 ```
 
 ### 5. Query the data back
 
 ```bash
-curl http://localhost:8000/bxp/v2/locations/s1v0g/latest
+curl http://localhost:5000/bxp/v2/locations/s1v0g/latest
 ```
 
 ---
@@ -69,7 +69,7 @@ data = read_bxp("my_reading.bxp.json")
 print(data["_integrityOk"])  # True — hash verified
 
 # Submit to a BXP server
-client = BXPClient("http://localhost:8000")
+client = BXPClient("http://localhost:5000")
 result = client.submit(
     latitude=5.6037, longitude=-0.1870,
     pm25=47.2, no2=18.3
@@ -84,7 +84,7 @@ print(result["bxpHri"])     # 61.2
 
 ```bash
 # Submit a reading
-curl -X POST http://localhost:8000/bxp/v2/readings \
+curl -X POST http://localhost:5000/bxp/v2/readings \
   -H "Content-Type: application/json" \
   -d '{
     "readings": [{
@@ -99,13 +99,13 @@ curl -X POST http://localhost:8000/bxp/v2/readings \
   }'
 
 # Get latest for location
-curl http://localhost:8000/bxp/v2/locations/s1v0g/latest
+curl http://localhost:5000/bxp/v2/locations/s1v0g/latest
 
 # Get all readings
-curl http://localhost:8000/bxp/v2/readings
+curl http://localhost:5000/bxp/v2/readings
 
 # Calculate HRI
-curl -X POST "http://localhost:8000/bxp/v2/hri/calculate?duration=24h&population=sensitive" \
+curl -X POST "http://localhost:5000/bxp/v2/hri/calculate?duration=24h&population=sensitive" \
   -H "Content-Type: application/json" \
   -d '[{"agentId": "PM2_5", "value": 67.0, "unit": "ug/m3"}]'
 ```
@@ -178,10 +178,10 @@ bxp hri --pm25 67.0 --no2 31.0
 bxp hri --pm25 67.0 --duration 24h --population sensitive
 
 # Submit to server
-bxp submit --server http://localhost:8000 --file my_reading.bxp.json
+bxp submit --server http://localhost:5000 --file my_reading.bxp.json
 
 # Check server status
-bxp server-status --server http://localhost:8000
+bxp server-status --server http://localhost:5000
 ```
 
 ---

@@ -36,13 +36,13 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).parent.parent / "sdk" / "python"))
 from bxp_sdk import (
     write_bxp, read_bxp, validate_bxp, calculate_risk,
-    encode_geohash, BXPClient, BXP_VERSION, RISK_LEVELS,
+    BXPClient, RISK_LEVELS,
     WHO_THRESHOLDS, HRI_WEIGHTS,
     write_bxp_binary, read_bxp_binary, validate_bxp_binary,
 )
 from bxp_binary import (
     encode_bxp_binary, decode_bxp_binary, BXPBinaryError,
-    bxp_json_to_binary, bxp_binary_to_json, FILE_TYPES,
+    FILE_TYPES,
 )
 
 

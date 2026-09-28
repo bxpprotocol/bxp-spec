@@ -32,11 +32,10 @@ import json
 import logging
 import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "sdk" / "python"))
-from bxp_sdk import BXPClient, AGENT_UNITS
+from bxp_sdk import BXPClient
 
 logging.basicConfig(
     level=logging.INFO,

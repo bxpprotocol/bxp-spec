@@ -19,8 +19,7 @@ import pytest
 
 from bxp_binary import (
     MAGIC, HEADER_SIZE, FILE_TYPES,
-    FLAG_COMPRESSED, FLAG_ENCRYPTED, FLAG_SIGNED, FLAG_DRAFT,
-    encode_bxp_binary, decode_bxp_binary, BXPBinaryError,
+    FLAG_COMPRESSED, encode_bxp_binary, decode_bxp_binary, BXPBinaryError,
     bxp_json_to_binary, bxp_binary_to_json,
 )
 
@@ -287,3 +286,63 @@ if __name__ == "__main__":
             print(f"FAILED: {name}")
             traceback.print_exc()
     print(f"\n{passed} passed, {failed} failed (parametrized tests skipped without pytest)")
+
+
+# ── Decompression-bomb / hostile-input hardening ───────────────
+
+def _seal(payload: bytes, flags: int) -> bytes:
+    """Build a container with valid CRCs around an arbitrary payload."""
+    import zlib
+    from bxp_binary import HEADER_STRUCT, CHECKSUM_STRUCT, MAGIC
+    body = HEADER_STRUCT.pack(MAGIC, 2, 0, 0x01, flags, 0, 0, len(payload))
+    return (body
+            + CHECKSUM_STRUCT.pack(zlib.crc32(body) & 0xFFFFFFFF,
+                                   zlib.crc32(payload) & 0xFFFFFFFF)
+            + payload)
+
+
+def test_decompression_bomb_rejected_with_bounded_memory():
+    import gzip
+    import tracemalloc
+    from bxp_binary import decode_bxp_binary, BXPBinaryError, MAX_DECOMPRESSED_BYTES
+    bomb = gzip.compress(b"\0" * (MAX_DECOMPRESSED_BYTES * 8), 9)  # ~128 MB inflated
+    assert len(bomb) < 1024 * 1024  # tiny on the wire
+    tracemalloc.start()
+    try:
+        with pytest.raises(BXPBinaryError, match="exceeds"):
+            decode_bxp_binary(_seal(bomb, flags=0x01))
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    # Must never inflate anywhere near the full bomb size.
+    assert peak < MAX_DECOMPRESSED_BYTES * 3
+
+
+def test_payload_just_under_limit_still_decodes():
+    import gzip
+    import json
+    from bxp_binary import decode_bxp_binary
+    doc = json.dumps({"pad": "x" * (1024 * 1024)}).encode()
+    result = decode_bxp_binary(_seal(gzip.compress(doc), flags=0x01))
+    assert len(result["record"]["pad"]) == 1024 * 1024
+
+
+def test_truncated_gzip_stream_is_a_binary_error_not_a_crash():
+    import gzip
+    from bxp_binary import decode_bxp_binary, BXPBinaryError
+    good = gzip.compress(b'{"a": 1}' * 100)
+    with pytest.raises(BXPBinaryError):
+        decode_bxp_binary(_seal(good[:-8], flags=0x01))
+
+
+def test_garbage_with_valid_checksums_only_raises_binary_error():
+    # Bypasses the CRC gate so the parsing logic itself is exercised.
+    import random
+    from bxp_binary import decode_bxp_binary, BXPBinaryError
+    rng = random.Random(7)
+    for _ in range(2000):
+        payload = bytes(rng.randrange(256) for _ in range(rng.randint(0, 120)))
+        try:
+            decode_bxp_binary(_seal(payload, flags=rng.choice([0, 1, 16, 17])))
+        except BXPBinaryError:
+            pass

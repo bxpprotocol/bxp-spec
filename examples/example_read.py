@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "sdk" / "python"))
-from bxp_sdk import read_bxp, validate_bxp, calculate_risk
+from bxp_sdk import read_bxp, validate_bxp
 
 print("=" * 60)
 print("  BXP Example — Reading .bxp files")
@@ -104,7 +104,7 @@ print()
 # Count by level
 from collections import Counter
 levels = Counter(r["bxpHriLevel"] for r in readings)
-print(f"  Risk level distribution:")
+print("  Risk level distribution:")
 for level, count in sorted(levels.items()):
     bar = "█" * count
     print(f"    {level:<12} {bar} ({count})")

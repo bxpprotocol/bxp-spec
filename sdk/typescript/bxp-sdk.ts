@@ -493,3 +493,4 @@ export class BXPClient {
 // ─── Default export ───────────────────────────────────────────
 
 export default BXPClient;
+export * from './bxp-binary.js';

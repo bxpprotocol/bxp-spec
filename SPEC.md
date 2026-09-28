@@ -787,7 +787,7 @@ for later RFCs rather than guessing at them now:
 - **Node identity & discovery**: `POST /nodes/announce` lets a node
   register itself with a peer (§8.2); there is no discovery protocol
   beyond direct announcement yet (e.g. no DHT, no well-known registry).
-- **Replication**: `GET /sync?sinceTs=...` (§8.2.2) lets a node pull
+- **Replication**: `GET /sync?since=<cursor>` (§8.2.2) lets a node pull
   everything newer than its last-seen watermark from a peer. This is
   enough to build a full mesh by having every node periodically sync
   from every other node it knows about (from `GET /nodes`).
@@ -844,7 +844,7 @@ implement; treat those as a roadmap, not a claim of what exists today.
 | GET | `/bxp/v2/devices/{uuid}` | Get device metadata | Device Token | Implemented |
 | GET | `/bxp/v2/nodes` | List known federated nodes | No | Implemented |
 | POST | `/bxp/v2/nodes/announce` | Announce this node to a peer | No | Implemented |
-| GET | `/bxp/v2/sync` | **New (§7 Stage 7):** pull readings created since a watermark, for federation replication — see §8.2.2 | Node Token | Implemented |
+| GET | `/bxp/v2/sync` | **New (§7 Stage 7):** pull changes (readings and deletion tombstones) after a cursor, for federation replication — see §8.2.2 | Node Token | Implemented |
 | GET | `/bxp/v2/agents` | List all supported agents | No | Planned |
 | GET | `/bxp/v2/agents/{agentId}` | Full agent specification | No | Planned |
 | POST | `/bxp/v2/devices/{uuid}/calibration` | Submit calibration record | Device Token | Planned |
@@ -880,101 +880,27 @@ heuristics are expected to evolve without breaking the API shape.
 
 #### 8.2.2 `GET /bxp/v2/sync` — federation pull
 
-Query parameters: `sinceTs` (int64, microseconds — return readings
-created after this watermark), `limit` (default 500, max 2000). The
-response includes each reading's originating `nodeId` (provenance,
-§7 Stage 6) and a `nextSinceTs` cursor for the caller's next call.
-This is the minimum operation a second node needs in order to
-replicate — see §"Federation" notes in §12 for what is deliberately
-*not* yet specified (trust, conflict resolution, dedup policy).
+Query parameters: `since` (integer cursor, default `0` = from the beginning),
+`limit` (default 500, max 2000). The response carries the changes after that
+cursor, oldest first, and a `nextCursor` to resume from.
 
-### 8.3 Query Parameters
+- The cursor is an **opaque, node-local ingest sequence**, not an observation
+  timestamp. A timestamp cursor is unsound: a device can report any timestamp,
+  so one far-future reading would stall replication forever, and a reading that
+  arrives late from an offline device (older timestamp) would be skipped. A
+  caller MUST treat the cursor as opaque and only echo back `nextCursor`.
+- Each reading carries its originating `nodeId` (provenance, §7 Stage 6).
+- **Deletions replicate.** A deleted reading is delivered as a tombstone
+  `{"readingId": "...", "deleted": true, "deletionProof": "sha256:..."}`
+  containing no observation data. A replica MUST erase its copy on receipt
+  (§9.1: deletion is irreversible).
+- A reading whose `readingId` already exists is never overwritten; replicas
+  dedupe by `readingId`.
 
-Standard parameters supported across all GET /locations endpoints:
+This is the minimum a second node needs in order to replicate. What is
+deliberately *not* yet specified (trust, conflict resolution, cross-peer dedup
+policy) is listed in §7 Stage 7.
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `start` | ISO 8601 datetime | 24h ago | Start of query window |
-| `end` | ISO 8601 datetime | now | End of query window |
-| `agents` | comma-separated string | all | Agent IDs to include |
-| `quality` | enum | UNVALIDATED | Minimum quality flag |
-| `limit` | integer | 100 | Max records returned (max 10,000) |
-| `offset` | integer | 0 | Pagination offset |
-| `format` | enum | json | Response format: json, bxp, csv |
-| `resolution` | integer 5–9 | source | Geohash precision for aggregation |
-
-### 8.4 Standard Response Envelope
-
-Every API response MUST follow this structure:
-
-```json
-{
-  "status": "ok",
-  "bxpVersion": "2.0",
-  "requestId": "req_a1b2c3d4",
-  "timestamp": "2026-03-04T08:00:00Z",
-  "data": {},
-  "meta": {
-    "totalCount": 1842,
-    "returnedCount": 100,
-    "offset": 0,
-    "queryDurationMs": 34
-  },
-  "errors": []
-}
-```
-
-### 8.5 Error Response Format
-
-```json
-{
-  "status": "error",
-  "bxpVersion": "2.0",
-  "requestId": "req_a1b2c3d4",
-  "timestamp": "2026-03-04T08:00:00Z",
-  "data": null,
-  "errors": [
-    {
-      "code": "BXP_4001",
-      "message": "Geohash precision below minimum required (5)",
-      "field": "geohash"
-    }
-  ]
-}
-```
-
-### 8.6 Authentication
-
-Three token classes are recognized by BXP:
-
-| Token Type | Scope | Lifespan | How to Obtain |
-|------------|-------|----------|---------------|
-| Device Token | Write readings for one UUID | Permanent until revoked | Issued at device registration |
-| User Token | Personal records, community reports | 30 days, refreshable | OAuth 2.0 flow |
-| API Key | Administrative operations | Permanent until revoked | Issued to volume administrators |
-
-All tokens MUST be passed in the `Authorization` header:
-
-```
-Authorization: Bearer [token]
-```
-
-### 8.7 Rate Limits
-
-| Token Type | Read Limit | Write Limit |
-|------------|------------|-------------|
-| No auth (public) | 1,000 req/hour | — |
-| Device Token | 10,000 req/hour | 1,000 readings/minute |
-| User Token | 5,000 req/hour | 100 reports/hour |
-| API Key | Unlimited | Unlimited |
-
-Responses include rate limit headers:
-
-```
-X-RateLimit-Limit: 1000
-X-RateLimit-Remaining: 847
-X-RateLimit-Reset: 1710003600
-```
 
 ---
 

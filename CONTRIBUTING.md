@@ -26,6 +26,29 @@ at this stage are:
 
 ---
 
+## Development Setup
+
+Requirements: Python 3.10+, Node 22.18+ (the TypeScript tests use Node's
+built-in type stripping), and `make`.
+
+```bash
+make install       # Python + TypeScript dev dependencies
+make check         # lint + typecheck + all tests + conformance vectors
+make run           # start a local node on http://localhost:5000
+```
+
+`make check` runs the same steps as CI. Individual targets: `lint`,
+`typecheck`, `test`, `conformance`. Configuration is via environment
+variables; copy `.env.example` to `.env` for the full list.
+
+Two implementations of the binary format (Python and TypeScript) are checked
+against the same golden files in `conformance/`. If you change the wire
+format, regenerate the vectors (`python conformance/generate_vectors.py`) and
+make sure **both** `verify_python.py` and `verify_typescript.mjs` pass.
+
+Found a security issue? See [SECURITY.md](SECURITY.md) — do not open a
+public issue.
+
 ## Ways to Contribute
 
 ### 1. Report an Issue

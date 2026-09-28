@@ -5,9 +5,7 @@ Run: cd reference-server && python -m pytest tests/ -v
 
 import sys
 import os
-import json
 import time
-import hashlib
 import pytest
 import tempfile
 from pathlib import Path
@@ -347,6 +345,25 @@ class TestDeleteAndVerify:
         assert d["deleted"] is True
         assert "sha256:" in d["deletionProof"]
 
+    def test_delete_other_devices_reading_forbidden(self):
+        # Regression: a valid token used to be enough to delete ANY
+        # reading. It must only authorize deleting the caller's own.
+        _, victim_rid = self._register_and_submit()
+        attacker_token = client.post(
+            "/bxp/v2/devices/register", json={"label": "attacker"}
+        ).json()["data"]["token"]
+        r = client.delete(f"/bxp/v2/readings/{victim_rid}",
+                          headers={"Authorization": f"Bearer {attacker_token}"})
+        assert r.status_code == 403
+        # ...and the victim's reading must still exist afterwards.
+        assert client.get(f"/bxp/v2/readings/{victim_rid}").status_code == 200
+
+    def test_delete_nonexistent_reading_404(self):
+        token, _ = self._register_and_submit()
+        r = client.delete("/bxp/v2/readings/does-not-exist",
+                          headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 404
+
     def test_deleted_reading_not_found(self):
         token, rid = self._register_and_submit()
         client.delete(f"/bxp/v2/readings/{rid}",
@@ -448,9 +465,18 @@ class TestSearch:
 
 # ─── Nearby (spec §7 Stage 6, §8.2.1) ──────────────────────────
 
+def _sensor_headers():
+    """Auth header for a freshly registered (fixed-sensor) device. Registered
+    devices keep full coordinate precision; anonymous submissions are coarsened
+    to a geohash-5 cell centre (SPEC.md 9.1), which is too coarse to test
+    metre-scale /nearby ranking against."""
+    d = client.post("/bxp/v2/devices/register", json={"label": "nearby-test"}).json()["data"]
+    return {"Authorization": f"Bearer {d['token']}"}
+
+
 class TestNearby:
     def test_nearby_finds_reading_close_by(self):
-        client.post("/bxp/v2/readings", json={"readings": [{
+        client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
             "latitude": 5.6037, "longitude": -0.1870,
             "agents": [{"agentId": "PM2_5", "value": 30}]
         }]})
@@ -463,7 +489,7 @@ class TestNearby:
         assert "relevanceScore" in body["data"]["readings"][0]
 
     def test_nearby_excludes_beyond_radius(self):
-        client.post("/bxp/v2/readings", json={"readings": [{
+        client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
             "latitude": 5.6037, "longitude": -0.1870,
             "agents": [{"agentId": "PM2_5", "value": 30}]
         }]})
@@ -475,7 +501,7 @@ class TestNearby:
     def test_nearby_respects_max_age(self):
         # A reading with an old timestampUs should be excluded by maxAgeS.
         old_ts = int(time.time() * 1_000_000) - 7200 * 1_000_000  # 2h ago
-        client.post("/bxp/v2/readings", json={"readings": [{
+        client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
             "latitude": 5.61, "longitude": -0.19, "timestampUs": old_ts,
             "agents": [{"agentId": "PM2_5", "value": 30}]
         }]})
@@ -487,7 +513,7 @@ class TestNearby:
             assert reading["timestampUs"] != old_ts
 
     def test_nearby_agent_filter(self):
-        client.post("/bxp/v2/readings", json={"readings": [{
+        client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
             "latitude": 5.62, "longitude": -0.20,
             "agents": [{"agentId": "NO2", "value": 10}]
         }]})
@@ -502,7 +528,7 @@ class TestNearby:
 
     def test_nearby_limit_respected(self):
         for i in range(3):
-            client.post("/bxp/v2/readings", json={"readings": [{
+            client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
                 "latitude": 5.63 + i * 0.0001, "longitude": -0.21,
                 "agents": [{"agentId": "PM2_5", "value": 10 + i}]
             }]})
@@ -517,12 +543,12 @@ class TestNearby:
         # invert it to closer+fresher vs farther+stale to keep the two
         # candidates in the same geohash-neighbor cells reliably).
         now_us = int(time.time() * 1_000_000)
-        client.post("/bxp/v2/readings", json={"readings": [{
+        client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
             "latitude": 5.6500, "longitude": -0.2200,
             "timestampUs": now_us - 55 * 60 * 1_000_000,  # 55 min old
             "agents": [{"agentId": "PM2_5", "value": 10}]
         }]})
-        client.post("/bxp/v2/readings", json={"readings": [{
+        client.post("/bxp/v2/readings", headers=_sensor_headers(), json={"readings": [{
             "latitude": 5.6503, "longitude": -0.2200,
             "timestampUs": now_us - 3 * 60 * 1_000_000,  # 3 min old
             "agents": [{"agentId": "PM2_5", "value": 10}]
@@ -536,52 +562,61 @@ class TestNearby:
 # ─── Sync (spec §7 Stage 7, §8.2.2) ────────────────────────────
 
 class TestSync:
-    def test_sync_returns_readings_since_watermark(self):
-        r0 = client.get("/bxp/v2/sync?sinceTs=0&limit=1")
-        watermark = r0.json()["nextSinceTs"]
+    def _submit(self, lat=5.7, lon=-0.3, **extra):
+        return client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": lat, "longitude": lon,
+            "agents": [{"agentId": "PM2_5", "value": 15}], **extra}]}).json()["data"]["readings"][0]
 
-        submit = client.post("/bxp/v2/readings", json={"readings": [{
-            "latitude": 5.7, "longitude": -0.3,
-            "agents": [{"agentId": "PM2_5", "value": 15}]
-        }]}).json()
-        new_ts = submit["data"]["readings"][0]["timestampUs"]
-
-        r = client.get(f"/bxp/v2/sync?sinceTs={watermark}&limit=500")
-        assert r.status_code == 200
-        body = r.json()
-        assert any(x["timestampUs"] == new_ts for x in body["data"]["readings"])
-        assert body["nextSinceTs"] >= new_ts
+    def test_sync_returns_changes_after_cursor(self):
+        cursor = client.get("/bxp/v2/sync?since=0&limit=2000").json()["nextCursor"]
+        new = self._submit()
+        body = client.get(f"/bxp/v2/sync?since={cursor}").json()
+        assert [r["readingId"] for r in body["data"]["readings"]] == [new["readingId"]]
+        assert body["nextCursor"] > cursor
 
     def test_sync_reading_carries_node_id(self):
-        submit = client.post("/bxp/v2/readings", json={"readings": [{
-            "latitude": 5.71, "longitude": -0.31,
-            "agents": [{"agentId": "PM2_5", "value": 15}]
-        }]}).json()
-        ts = submit["data"]["readings"][0]["timestampUs"]
-        r = client.get(f"/bxp/v2/sync?sinceTs={ts - 1}&limit=500")
-        match = next(x for x in r.json()["data"]["readings"] if x["timestampUs"] == ts)
-        assert match.get("nodeId")
+        self._submit()
+        assert client.get("/bxp/v2/sync?since=0").json()["data"]["readings"][0]["nodeId"]
 
-    def test_sync_limit_capped(self):
-        r = client.get("/bxp/v2/sync?sinceTs=0&limit=99999")
-        assert r.status_code == 200  # capped server-side, not rejected
+    def test_sync_pages_without_gaps(self):
+        ids = [self._submit(lat=5.7 + i * 0.01)["readingId"] for i in range(5)]
+        seen, cursor = [], 0
+        while True:
+            body = client.get(f"/bxp/v2/sync?since={cursor}&limit=2").json()
+            if not body["data"]["readings"]:
+                break
+            seen += [r["readingId"] for r in body["data"]["readings"]]
+            cursor = body["nextCursor"]
+        assert seen == ids
 
-    def test_sync_empty_when_nothing_newer(self):
-        r = client.get("/bxp/v2/sync?sinceTs=99999999999999999&limit=10")
-        assert r.status_code == 200
-        assert r.json()["count"] == 0
+    def test_far_future_timestamp_does_not_stall_sync(self):
+        self._submit(timestampUs=4_000_000_000_000_000)
+        cursor = client.get("/bxp/v2/sync?since=0").json()["nextCursor"]
+        later = self._submit(lat=5.9)
+        got = client.get(f"/bxp/v2/sync?since={cursor}").json()["data"]["readings"]
+        assert [r["readingId"] for r in got] == [later["readingId"]]
+
+    def test_deletion_replicates_as_a_content_free_tombstone(self):
+        reg = client.post("/bxp/v2/devices/register", json={"label": "s"}).json()["data"]
+        h = {"Authorization": f"Bearer {reg['token']}"}
+        rid = client.post("/bxp/v2/readings", headers=h, json={"readings": [{
+            "latitude": 5.7, "longitude": -0.3,
+            "agents": [{"agentId": "PM2_5", "value": 15}]}]}).json()["data"]["readings"][0]["readingId"]
+        cursor = client.get("/bxp/v2/sync?since=0").json()["nextCursor"]
+        assert client.delete(f"/bxp/v2/readings/{rid}", headers=h).status_code == 200
+        item = client.get(f"/bxp/v2/sync?since={cursor}").json()["data"]["readings"][0]
+        assert item == {"readingId": rid, "deleted": True, "deletionProof": item["deletionProof"]}
+
+    def test_sync_limit_and_cursor_are_validated(self):
+        assert client.get("/bxp/v2/sync?limit=99999").status_code == 422
+        assert client.get("/bxp/v2/sync?since=-1").status_code == 422
 
     def test_sync_token_gate_when_configured(self, monkeypatch):
         import server as server_module
         monkeypatch.setattr(server_module, "BXP_NODE_SYNC_TOKEN", "secret123")
-        r_no_auth = client.get("/bxp/v2/sync?sinceTs=0")
-        assert r_no_auth.status_code == 401
-        r_bad = client.get("/bxp/v2/sync?sinceTs=0",
-                           headers={"Authorization": "Bearer wrong"})
-        assert r_bad.status_code == 401
-        r_ok = client.get("/bxp/v2/sync?sinceTs=0",
-                          headers={"Authorization": "Bearer secret123"})
-        assert r_ok.status_code == 200
+        assert client.get("/bxp/v2/sync").status_code == 401
+        assert client.get("/bxp/v2/sync", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert client.get("/bxp/v2/sync", headers={"Authorization": "Bearer secret123"}).status_code == 200
 
 
 # ─── Metrics ─────────────────────────────────────────────────
@@ -633,3 +668,212 @@ class TestHriCalculation:
         }]})
         reading = r.json()["data"]["readings"][0]
         assert reading["payloadHash"].startswith("sha256:")
+
+
+# ─── Security hardening regressions ───────────────────────────
+
+class TestRateLimiterHardening:
+    def test_stale_keys_are_swept(self):
+        import asyncio
+        from server import RateLimiter
+
+        async def run():
+            rl = RateLimiter(calls=5, window_s=1)
+            for i in range(50):
+                await rl.check(f"spoofed-{i}")
+            assert len(rl._store) == 50
+            await asyncio.sleep(1.1)
+            rl._since_sweep = RateLimiter._SWEEP_EVERY  # force a sweep
+            await rl.check("fresh")
+            return len(rl._store)
+
+        assert asyncio.run(run()) == 1  # only "fresh" survives
+
+    def test_limit_still_enforced(self):
+        import asyncio
+        from server import RateLimiter
+
+        async def run():
+            rl = RateLimiter(calls=3, window_s=60)
+            return [await rl.check("k") for _ in range(5)]
+
+        assert asyncio.run(run()) == [True, True, True, False, False]
+
+    def test_forwarded_for_ignored_by_default(self):
+        import server as server_module
+        from types import SimpleNamespace
+        req = SimpleNamespace(
+            headers={"x-forwarded-for": "6.6.6.6"},
+            client=SimpleNamespace(host="1.2.3.4"),
+        )
+        assert server_module.TRUST_PROXY_HEADERS is False
+        assert server_module._client_ip(req) == "1.2.3.4"
+
+    def test_forwarded_for_honored_when_opted_in(self, monkeypatch):
+        import server as server_module
+        from types import SimpleNamespace
+        monkeypatch.setattr(server_module, "TRUST_PROXY_HEADERS", True)
+        req = SimpleNamespace(
+            headers={"x-forwarded-for": "6.6.6.6, 10.0.0.1"},
+            client=SimpleNamespace(host="1.2.3.4"),
+        )
+        assert server_module._client_ip(req) == "6.6.6.6"
+
+
+class TestHostileUploads:
+    def test_decompression_bomb_over_http_rejected(self):
+        import gzip
+        from bxp_binary import HEADER_STRUCT, CHECKSUM_STRUCT, MAGIC, MAX_DECOMPRESSED_BYTES
+        import zlib
+        bomb = gzip.compress(b"\0" * (MAX_DECOMPRESSED_BYTES * 4), 9)
+        body = HEADER_STRUCT.pack(MAGIC, 2, 0, 0x01, 0x01, 0, 0, len(bomb))
+        raw = (body + CHECKSUM_STRUCT.pack(zlib.crc32(body) & 0xFFFFFFFF,
+                                           zlib.crc32(bomb) & 0xFFFFFFFF) + bomb)
+        r = client.post("/bxp/v2/readings", content=raw,
+                        headers={"Content-Type": "application/octet-stream"})
+        assert r.status_code == 400
+        assert "exceeds" in r.json()["detail"]
+
+    def test_oversized_body_rejected_413(self, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "MAX_BODY_BYTES", 1024)
+        r = client.post("/bxp/v2/readings", content=b"x" * 5000,
+                        headers={"Content-Type": "application/json"})
+        assert r.status_code == 413
+
+    def test_oversized_chunked_body_without_content_length_rejected(self, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "MAX_BODY_BYTES", 1024)
+
+        def gen():  # generator body => chunked transfer, no Content-Length
+            for _ in range(20):
+                yield b"y" * 500
+
+        r = client.post("/bxp/v2/readings", content=gen(),
+                        headers={"Content-Type": "application/json"})
+        assert r.status_code == 413
+
+    def test_normal_sized_submission_unaffected(self):
+        r = client.post("/bxp/v2/readings", json={"readings": [{
+            "latitude": 5.6, "longitude": -0.18,
+            "agents": [{"agentId": "PM2_5", "value": 12}]}]})
+        assert r.status_code == 201
+
+
+# ─── Ownership, privacy and input-bounds regressions ──────────
+
+class TestOwnershipAndPrivacy:
+    def _device(self):
+        d = client.post("/bxp/v2/devices/register", json={"label": "o"}).json()["data"]
+        return d["device"]["deviceUuid"], {"Authorization": f"Bearer {d['token']}"}
+
+    def _post(self, headers=None, **reading):
+        body = {"latitude": 5.60371, "longitude": -0.18702,
+                "agents": [{"agentId": "PM2_5", "value": 12}], **reading}
+        return client.post("/bxp/v2/readings", headers=headers or {}, json={"readings": [body]})
+
+    def test_anonymous_cannot_submit_under_a_registered_devices_uuid(self):
+        uuid_, _ = self._device()
+        assert self._post(deviceUuid=uuid_).status_code == 403
+
+    def test_authenticated_device_cannot_submit_as_another_device(self):
+        _, h1 = self._device()
+        uuid2, _ = self._device()
+        assert self._post(headers=h1, deviceUuid=uuid2).status_code == 403
+
+    def test_registering_an_existing_uuid_is_409_and_does_not_rotate_the_token(self):
+        uuid_, h = self._device()
+        assert client.post("/bxp/v2/devices/register", json={"deviceUuid": uuid_}).status_code == 409
+        assert self._post(headers=h).status_code == 201  # original token still valid
+
+    def test_anonymous_coordinates_are_coarsened_to_the_cell_centre(self):
+        r = self._post().json()["data"]["readings"][0]
+        assert len(r["geohash"]) == 5
+        assert (r["latitude"], r["longitude"]) != (5.60371, -0.18702)
+        assert abs(r["latitude"] - 5.60371) < 0.03
+
+    def test_authenticated_device_keeps_full_precision(self):
+        _, h = self._device()
+        r = self._post(headers=h).json()["data"]["readings"][0]
+        assert (r["latitude"], r["longitude"]) == (5.60371, -0.18702)
+        assert len(r["geohash"]) == 7
+
+    def test_duplicate_submission_is_reported_and_does_not_overwrite(self):
+        first = self._post(timestampUs=1_700_000_000_000_000).json()["data"]["readings"][0]
+        again = self._post(timestampUs=1_700_000_000_000_000).json()["data"]["readings"][0]
+        assert first["stored"] is True and again["stored"] is False
+        assert first["readingId"] == again["readingId"]
+
+    def test_distinct_readings_at_the_same_instant_do_not_collide(self):
+        a = self._post(timestampUs=1_700_000_000_000_001).json()["data"]["readings"][0]
+        b = self._post(timestampUs=1_700_000_000_000_001, latitude=6.5).json()["data"]["readings"][0]
+        assert a["readingId"] != b["readingId"] and b["stored"] is True
+
+    def test_agent_extras_and_ext_survive_ingestion(self):
+        r = self._post(ext={"org.example": {"k": 1}},
+                       agents=[{"agentId": "PM2_5", "value": 12, "uncertainty": 2.5,
+                                "correction": {"applied": True, "rawValue": 20}}])
+        rid = r.json()["data"]["readings"][0]["readingId"]
+        got = client.get(f"/bxp/v2/readings/{rid}").json()["data"]["reading"]
+        assert got["ext"] == {"org.example": {"k": 1}}
+        assert got["agents"][0]["correction"]["rawValue"] == 20
+        assert got["agents"][0]["uncertainty"] == 2.5
+
+    def test_nan_infinity_and_oversize_inputs_are_rejected(self):
+        for bad in ('{"readings":[{"latitude":NaN,"longitude":0,"agents":[]}]}',
+                    '{"readings":[{"latitude":0,"longitude":0,"agents":[{"agentId":"CO","value":Infinity}]}]}'):
+            r = client.post("/bxp/v2/readings", content=bad,
+                            headers={"Content-Type": "application/json"})
+            assert r.status_code in (400, 422)
+        too_many = {"readings": [{"latitude": 0, "longitude": 0, "agents": []}] * 501}
+        assert client.post("/bxp/v2/readings", json=too_many).status_code == 422
+        assert self._post(timestampUs=10**19).status_code == 422
+        assert self._post(deviceUuid="x" * 200).status_code == 422
+
+    def test_pagination_bounds_are_validated(self):
+        assert client.get("/bxp/v2/readings?geohash=s&limit=0").status_code == 422
+        assert client.get("/bxp/v2/readings?geohash=s&limit=201").status_code == 422
+        assert client.get("/bxp/v2/readings?geohash=s&offset=-1").status_code == 422
+
+    def test_malformed_geohash_is_400(self):
+        assert client.get("/bxp/v2/locations/abc!!/latest").status_code == 400
+        assert client.get("/bxp/v2/readings?geohash=%25").status_code == 400
+
+    def test_nearby_rejects_bad_parameters(self):
+        assert client.get("/bxp/v2/nearby?lat=nan&lon=0").status_code == 422
+        assert client.get("/bxp/v2/nearby?lat=0&lon=0&radiusM=0").status_code == 422
+        assert client.get("/bxp/v2/nearby?lat=0&lon=0&minQuality=bogus").status_code == 422
+
+    def test_deleted_reading_content_is_gone_from_verify(self):
+        _, h = self._device()
+        rid = self._post(headers=h).json()["data"]["readings"][0]["readingId"]
+        client.delete(f"/bxp/v2/readings/{rid}", headers=h)
+        v = client.get(f"/bxp/v2/readings/{rid}/verify").json()["data"]
+        assert v["deleted"] is True and v["integrityOk"] is None
+
+
+class TestNodeRegistryAndPages:
+    def test_node_cannot_be_redirected(self):
+        ok = {"nodeId": "peer-1", "baseUrl": "https://peer1.example"}
+        assert client.post("/bxp/v2/nodes/announce", json=ok).status_code == 200
+        assert client.post("/bxp/v2/nodes/announce",
+                           json={**ok, "baseUrl": "https://evil.example"}).status_code == 409
+
+    def test_node_announce_validates_input(self):
+        assert client.post("/bxp/v2/nodes/announce", json={"nodeId": "n"}).status_code == 422
+        assert client.post("/bxp/v2/nodes/announce",
+                           json={"nodeId": "n", "baseUrl": "javascript:alert(1)//x"}).status_code == 422
+        assert client.post("/bxp/v2/nodes/announce", content="not json",
+                           headers={"Content-Type": "application/json"}).status_code == 422
+
+    def test_error_pages_do_not_reflect_markup(self):
+        for path in ("/widget/", "/dashboard/"):
+            r = client.get(path + "%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E")
+            assert "<img src=x" not in r.text
+
+    def test_metrics_labels_cannot_be_broken(self, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "NODE_ID", 'a"}\nfake_metric 1')
+        lines = client.get("/metrics").text.splitlines()
+        assert not any(line.startswith("fake_metric") for line in lines)
+        assert sum(line.startswith("bxp_info{") for line in lines) == 1

@@ -1,0 +1,6 @@
+# Developer / CI tooling. Install with:
+#   pip install -r reference-server/requirements.txt -r requirements-dev.txt
+pytest>=8.0
+pytest-asyncio>=0.23
+ruff>=0.6
+pip-audit>=2.7

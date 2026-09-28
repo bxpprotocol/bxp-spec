@@ -1,0 +1,13 @@
+# Ruff — linter for all Python in the repo. Run: ruff check .
+target-version = "py310"
+line-length = 100
+extend-exclude = ["sdk/typescript/node_modules", "conformance/vectors"]
+
+[lint]
+# E9: syntax errors, F: pyflakes (unused imports/vars, undefined names),
+# B006/B008: mutable/call default args, S102/S307/S602: exec/eval/shell,
+# S608: SQL built from strings.
+select = ["E9", "F", "B006", "B008", "S102", "S307", "S602", "S608"]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S608"]

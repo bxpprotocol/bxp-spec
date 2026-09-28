@@ -94,21 +94,20 @@ bxp-protocol/
 ### Run the reference server
 
 ```bash
-cd reference-server
-pip install -r requirements.txt
-python server.py
+pip install -r reference-server/requirements.txt
+cd reference-server && python server.py
 ```
 
-Server starts at **http://localhost:8000**
-Interactive API docs: **http://localhost:8000/docs**
-Dashboard: **http://localhost:8000/**
+Server starts at **http://localhost:5000**
+Interactive API docs: **http://localhost:5000/docs**
+Dashboard: **http://localhost:5000/**
 
 Optional: set `AQICN_TOKEN` for live global city data (free at https://aqicn.org/api/).
 
 ### Docker
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 ## Using the Python SDK
@@ -134,7 +133,7 @@ data = read_bxp("accra.bxp.json")
 print(data["_integrityOk"])   # True
 
 # Submit to a BXP node
-client = BXPClient("http://localhost:8000")
+client = BXPClient("http://localhost:5000")
 result = client.submit(latitude=5.6037, longitude=-0.1870, pm25=47.2)
 ```
 
@@ -151,7 +150,7 @@ python cli/bxp_cli.py validate reading.bxp.json
 python cli/bxp_cli.py hri --pm25 67.0 --no2 31.0 --duration 8h --population sensitive
 
 # Submit to a node
-python cli/bxp_cli.py submit --server http://localhost:8000 --file reading.bxp.json
+python cli/bxp_cli.py submit --server http://localhost:5000 --file reading.bxp.json
 
 # Batch submit a directory of readings
 python cli/bxp_cli.py batch-submit --dir ./sensor_data/
@@ -167,19 +166,19 @@ python cli/bxp_cli.py map ./readings/ --output map.html
 
 ```bash
 # Submit a reading
-curl -X POST http://localhost:8000/bxp/v2/readings \
+curl -X POST http://localhost:5000/bxp/v2/readings \
   -H "Content-Type: application/json" \
   -d '{"readings":[{"latitude":5.6037,"longitude":-0.1870,
        "agents":[{"agentId":"PM2_5","value":47.2,"unit":"ug/m3"}]}]}'
 
 # Get latest for a location
-curl http://localhost:8000/bxp/v2/locations/s1v0g/latest
+curl http://localhost:5000/bxp/v2/locations/s1v0g/latest
 
 # Get live city data
-curl http://localhost:8000/bxp/v2/city/accra
+curl http://localhost:5000/bxp/v2/city/accra
 
 # Server health
-curl http://localhost:8000/bxp/v2/health
+curl http://localhost:5000/bxp/v2/health
 ```
 
 ## Architecture
@@ -244,7 +243,7 @@ A composite 0–100 score incorporating all available agents simultaneously, wei
 | Binary `.bxp` format | ✅ Implemented in Python and TypeScript; verified byte-for-byte interoperable via `conformance/` |
 | Conformance test suite | ✅ 17 golden vectors, Python + TypeScript both passing |
 | Embedded (C/Arduino/ESP32) | 🗓️ Planned, not yet implemented |
-| Federated node sync (`/sync`) | ✅ Implemented (§7 Stage 7) — pull-only replication primitive; trust/reputation/dedup between nodes still unspecified |
+| Federated node sync (`/sync`) | ✅ Implemented (§7 Stage 7) — cursor-based pull replication, deletions propagate as tombstones; trust/reputation/dedup between nodes still unspecified |
 | Nearby-observation query (`/nearby`) | ✅ Implemented (§7 Stage 6, §8.2.1) — relevance-ranked by distance, freshness, quality |
 
 ## Roadmap

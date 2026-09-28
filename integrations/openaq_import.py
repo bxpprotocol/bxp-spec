@@ -63,7 +63,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk" / "python"))
-from bxp_sdk import _build_bxp_record, write_bxp, write_bxp_binary, BXPClient  # noqa: E402
+from bxp_sdk import _build_bxp_record, BXPClient  # noqa: E402
 
 OPENAQ_BASE_URL = "https://api.openaq.org/v3"
 

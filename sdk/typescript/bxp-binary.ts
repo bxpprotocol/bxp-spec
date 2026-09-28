@@ -118,6 +118,9 @@ async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {
   return concatBytes(chunks);
 }
 
+/** Max size a compressed payload may inflate to (decompression-bomb guard). */
+export const MAX_DECOMPRESSED_BYTES = 16 * 1024 * 1024;
+
 async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
   if (typeof (globalThis as any).DecompressionStream === 'undefined') {
     throw new Error(
@@ -128,14 +131,25 @@ async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
   }
   const ds = new (globalThis as any).DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
-  writer.write(data);
-  writer.close();
+  // If we abort early (size limit / corrupt stream) these reject with an
+  // AbortError; unhandled, that would crash a Node process.
+  writer.write(data).catch(() => {});
+  writer.close().catch(() => {});
   const chunks: Uint8Array[] = [];
   const reader = ds.readable.getReader();
+  let total = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    total += value.length;
+    if (total > MAX_DECOMPRESSED_BYTES) {
+      await reader.cancel();
+      throw new BXPBinaryError(
+        `Decompressed payload exceeds the ${MAX_DECOMPRESSED_BYTES}-byte limit ` +
+        '(possible decompression bomb)'
+      );
+    }
     chunks.push(value);
   }
   return concatBytes(chunks);

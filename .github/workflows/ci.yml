@@ -1,4 +1,4 @@
-name: BXP CI
+name: CI
 
 on:
   push:
@@ -6,46 +6,108 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  python:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            reference-server/requirements.txt
+            requirements-dev.txt
+      - name: Install
+        run: pip install -r reference-server/requirements.txt -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Reference server tests
+        run: python -m pytest reference-server/tests -q
+      - name: Python SDK tests
+        run: python -m pytest sdk/python/tests -q
+      - name: Integration tests
+        run: python -m pytest integrations/tests -q
+      - name: Conformance vectors (Python)
+        run: python conformance/verify_python.py
+      - name: Sample dataset is valid JSON
+        run: python -c "import json; json.load(open('datasets/sample_readings.bxp.json'))"
 
-      - name: Install server dependencies
-        run: |
-          cd reference-server
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx
+  typescript:
+    name: TypeScript SDK (Node 22)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Tests use Node's built-in TypeScript type stripping (Node >= 22.18).
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run conformance
+      - run: npm run build
 
-      - name: Run server tests
+  package-build:
+    name: Python SDK wheel builds and installs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build --wheel --outdir /tmp/wheel sdk/python
+      - name: Install wheel in a clean venv and import it
         run: |
-          cd reference-server
-          python -m pytest tests/ -v
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install /tmp/wheel/*.whl
+          cd /tmp && /tmp/venv/bin/python -c "import bxp_sdk, bxp_binary"
 
-      - name: Lint SDK
+  docker:
+    name: Docker image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t bxp-node .
+      - name: Container becomes healthy
         run: |
-          pip install pyflakes
-          python -m pyflakes sdk/python/bxp_sdk.py
+          docker run -d --name bxp -p 5000:5000 bxp-node
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:5000/bxp/v2/health && exit 0
+            sleep 1
+          done
+          docker logs bxp; exit 1
 
-      - name: Lint CLI
-        run: |
-          python -m pyflakes cli/bxp_cli.py
-
-      - name: Validate sample dataset
-        run: |
-          python -c "
-          import json, sys
-          with open('datasets/sample_readings.bxp.json') as f:
-              data = json.load(f)
-          print(f'Sample dataset: {len(data) if isinstance(data, list) else 1} record(s) — OK')
-          "
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r reference-server/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm audit --omit=dev
+        working-directory: sdk/typescript

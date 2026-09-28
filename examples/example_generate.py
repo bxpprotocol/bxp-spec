@@ -39,7 +39,7 @@ record = write_bxp("delhi_india.bxp.json", {
     }
 })
 
-print(f"  File:      delhi_india.bxp.json")
+print("  File:      delhi_india.bxp.json")
 print(f"  Geohash:   {record['geohash']}")
 print(f"  PM2.5:     {record['agents'][0]['value']} μg/m³  (WHO limit: 15)")
 print(f"  BXP_HRI:   {record['bxpHri']} [{record['bxpHriLevel']}]")
@@ -65,7 +65,7 @@ record2 = write_bxp("london_uk.bxp.json", {
     }
 })
 
-print(f"  File:      london_uk.bxp.json")
+print("  File:      london_uk.bxp.json")
 print(f"  PM2.5:     {record2['agents'][0]['value']} μg/m³")
 print(f"  NO2:       {record2['agents'][2]['value']} ppb  (WHO limit: 25)")
 print(f"  BXP_HRI:   {record2['bxpHri']} [{record2['bxpHriLevel']}]")
@@ -91,7 +91,7 @@ record3 = write_bxp("cairo_egypt.bxp.json", {
     }
 })
 
-print(f"  File:      cairo_egypt.bxp.json")
+print("  File:      cairo_egypt.bxp.json")
 print(f"  PM10:      {record3['agents'][1]['value']} μg/m³  (WHO limit: 45)")
 print(f"  BXP_HRI:   {record3['bxpHri']} [{record3['bxpHriLevel']}]")
 
@@ -116,7 +116,7 @@ record4 = write_bxp("new_york_usa.bxp.json", {
     }
 })
 
-print(f"  File:      new_york_usa.bxp.json")
+print("  File:      new_york_usa.bxp.json")
 print(f"  PM2.5:     {record4['agents'][0]['value']} μg/m³  ← within WHO limit")
 print(f"  BXP_HRI:   {record4['bxpHri']} [{record4['bxpHriLevel']}]")
 

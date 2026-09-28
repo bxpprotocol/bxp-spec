@@ -164,3 +164,32 @@ test('flag bit values match spec', async () => {
 test('supported major version constant matches Python default', async () => {
   assert.equal(SUPPORTED_MAJOR, 2);
 });
+
+// ── Decompression-bomb hardening ────────────────────────────────
+
+test('decompression bomb is rejected, not inflated', async () => {
+  const { gzipSync } = await import('node:zlib');
+  const { crc32: crc } = await import('../bxp-binary.ts');
+  const { MAX_DECOMPRESSED_BYTES: LIMIT } = await import('../bxp-binary.ts');
+  const bomb = gzipSync(Buffer.alloc(LIMIT * 4), { level: 9 }); // ~64 MB inflated
+  assert.ok(bomb.length < 1024 * 1024);
+
+  const header = new Uint8Array(24);
+  const dv = new DataView(header.buffer);
+  dv.setUint32(0, 0x42585000);
+  dv.setUint16(4, 2);
+  dv.setUint8(8, 0x01);
+  dv.setUint8(9, 0x01); // compressed
+  dv.setUint32(20, bomb.length);
+  const out = new Uint8Array(32 + bomb.length);
+  out.set(header, 0);
+  const cdv = new DataView(out.buffer);
+  cdv.setUint32(24, crc(header));
+  cdv.setUint32(28, crc(new Uint8Array(bomb)));
+  out.set(bomb, 32);
+
+  const before = process.memoryUsage().rss;
+  await assert.rejects(() => decodeBxpBinary(out), /exceeds|bomb/i);
+  const grownMb = (process.memoryUsage().rss - before) / 1e6;
+  assert.ok(grownMb < 200, `memory grew by ${grownMb.toFixed(0)} MB`);
+});

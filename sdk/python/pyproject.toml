@@ -1,12 +1,12 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "bxp-sdk"
 version = "2.1.0"
 description = "BXP Protocol SDK — Breathe Exposure Protocol for atmospheric exposure data"
-readme = "../../README.md"
+readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "BXP Protocol", email = "bxpprotocol@proton.me"},
@@ -18,22 +18,18 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 async = ["httpx>=0.24.0"]
 all  = ["httpx>=0.24.0"]
-
-[project.scripts]
-bxp = "bxp_sdk.cli:main"
 
 [project.urls]
 Homepage   = "https://github.com/bxpprotocol/bxp-spec"
@@ -41,6 +37,6 @@ Repository = "https://github.com/bxpprotocol/bxp-spec"
 Issues     = "https://github.com/bxpprotocol/bxp-spec/issues"
 DOI        = "https://doi.org/10.5281/zenodo.18906812"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["bxp_sdk*"]
+[tool.setuptools]
+# bxp_sdk and bxp_binary are single-file modules, not packages.
+py-modules = ["bxp_sdk", "bxp_binary"]

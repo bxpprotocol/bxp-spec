@@ -46,7 +46,6 @@ import gzip
 import json
 import struct
 import zlib
-from typing import Optional
 
 MAGIC = 0x42585000  # "BXP\0"
 
@@ -160,6 +159,33 @@ def encode_bxp_binary(
     return header_body + checksums + payload
 
 
+# Upper bound on the size a compressed payload may inflate to. Without
+# it a few hundred KB of gzip (a "decompression bomb") makes the decoder
+# allocate gigabytes -- and the reference server feeds this function
+# unauthenticated uploads. Legitimate readings are a few KB; batch
+# containers a few MB at most.
+MAX_DECOMPRESSED_BYTES = 16 * 1024 * 1024
+
+
+def _gunzip_bounded(data: bytes, limit: int = MAX_DECOMPRESSED_BYTES) -> bytes:
+    d = zlib.decompressobj(wbits=31)  # 16 + 15: gzip container
+    try:
+        out = d.decompress(data, limit + 1)
+    except zlib.error as e:
+        raise BXPBinaryError(f"Failed to gzip-decompress payload: {e}")
+    if len(out) > limit or d.unconsumed_tail:
+        raise BXPBinaryError(
+            f"Decompressed payload exceeds the {limit}-byte limit "
+            "(possible decompression bomb)"
+        )
+    if not d.eof:
+        raise BXPBinaryError(
+            "Failed to gzip-decompress payload: stream ended before the "
+            "end-of-stream marker (truncated)"
+        )
+    return out
+
+
 def decode_bxp_binary(raw: bytes, verify: bool = True, supported_major: int = SUPPORTED_MAJOR) -> dict:
     """
     Decode a binary `.bxp` container back into a BXP record dict plus
@@ -248,10 +274,7 @@ def decode_bxp_binary(raw: bytes, verify: bool = True, supported_major: int = SU
 
     payload_json = payload
     if flags & FLAG_COMPRESSED:
-        try:
-            payload_json = gzip.decompress(payload)
-        except OSError as e:
-            raise BXPBinaryError(f"Failed to gzip-decompress payload: {e}")
+        payload_json = _gunzip_bounded(payload)
 
     try:
         record = json.loads(payload_json.decode("utf-8"))

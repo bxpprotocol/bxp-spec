@@ -8,6 +8,116 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Reference node hardening (checkpoint 07)
+
+Breaking: `GET /bxp/v2/sync` now takes `since` and returns `nextCursor`
+(previously `sinceTs` / `nextSinceTs`). `since=0` still means "from the start".
+
+- **Sync cursor is an ingest sequence, not a timestamp.** The old timestamp
+  cursor let one far-future reading stall replication forever and skipped
+  readings that arrived late from offline devices.
+- **Deletion is real and replicates.** Deleting a reading erases its content
+  (`secure_delete` on) and leaves a tombstone that `/sync` delivers, so peers
+  erase their copies too. Previously only a flag was set.
+- **Ownership.** Registering an existing device UUID is now 409 (it used to
+  mint a new token for it). Anonymous callers cannot submit under a registered
+  device's UUID, and an authenticated device cannot submit as another (403).
+- **No silent overwrites.** Readings are insert-if-absent; a resubmission can
+  no longer replace or resurrect a reading. Batches are stored atomically.
+  Reading IDs now include location and values, so distinct readings at one
+  instant no longer collide.
+- **Privacy floor enforced.** Anonymous submissions and community reports are
+  snapped to their geohash-5 cell centre (SPEC.md 9.1); exact coordinates were
+  previously stored and returned.
+- **`/nearby` correctness.** The 3x3 geohash block is chosen from the search
+  radius and latitude; a fixed precision-5 block missed readings well inside
+  the radius at high latitude. Queries are also index-friendly now (range
+  predicates instead of `LIKE`).
+- **Pagination.** The `agent` filter runs in SQL, so `total`, `limit` and
+  `offset` agree. Limits are validated (422) instead of silently trusted.
+- **Ingest keeps what clients send.** Agent-level fields (`uncertainty`,
+  `method`, the SPEC.md 5.5.1 `correction` object) and top-level `ext` /
+  `context` survive storage and replication (SPEC.md 5.7).
+- **Input bounds.** NaN/Infinity rejected; batch size, string lengths,
+  timestamps and identifiers are capped. The city cache is bounded.
+- **HTML/JS injection.** The dashboard, widget, map and compare pages escape
+  every value that comes from the URL or the upstream API; the city name is
+  URL-encoded when calling AQICN.
+- `POST /nodes/announce` validates input, requires an http(s) URL, and cannot
+  re-point an existing `nodeId`. `/metrics` labels are sanitised.
+- Code layout: `server.py` split into `hri.py`, `pages.py`, `geo.py`;
+  three duplicated geohash implementations replaced by `geo.py`.
+- Tests: `test_database.py`, `test_pages.py`, `test_hri.py` (stdlib only) and
+  about 25 new server tests. **The FastAPI routes and `test_server.py` were
+  written without being run (no network to install FastAPI in the sandbox);
+  run `make check` before relying on this.**
+
+### Security
+
+- **Broken access control (fixed):** `DELETE /bxp/v2/readings/{id}` only
+  checked that the caller held *a* valid device token, not that it owned the
+  reading, so any registered device could delete any other device's data.
+  Now returns 403 unless the token's device submitted the reading.
+- **Decompression bomb / DoS (fixed):** the binary decoder inflated gzip
+  payloads without a size limit; a ~200 KB upload to the unauthenticated
+  `POST /bxp/v2/readings` forced ~460 MB of allocation. Inflation is now
+  capped at 16 MiB (`MAX_DECOMPRESSED_BYTES`) in both the Python and
+  TypeScript decoders. (The first TypeScript version of this guard leaked an
+  unhandled `AbortError` that would crash a Node process; fixed and tested.)
+- **Unbounded request bodies (fixed):** uploads were read fully into memory.
+  Now capped (default 8 MiB, `BXP_MAX_BODY_BYTES`), enforced for both
+  declared and chunked bodies (413).
+- **Rate-limit bypass (fixed):** `X-Forwarded-For` was trusted
+  unconditionally, so any client could dodge per-IP limits by spoofing it.
+  Ignored unless `BXP_TRUST_PROXY_HEADERS=true`.
+- **Memory growth (fixed):** the rate limiter never evicted idle keys;
+  combined with the spoofable header this was an unbounded-memory vector.
+  Stale keys are now swept.
+- `BXP_NODE_SYNC_TOKEN` is compared in constant time (`hmac.compare_digest`).
+- **Vulnerable dependencies (fixed):** the pinned `fastapi==0.110.0` pulled
+  `starlette 0.36.3` (14 known advisories per `pip-audit`). Upgraded to
+  fastapi 0.141.1 / starlette 1.7.0 / uvicorn 0.54.0 / pydantic 2.13.5 /
+  httpx 0.28.1; the full suite passes and `pip-audit` / `npm audit` are clean.
+
+### Fixed
+
+- **Docker image could not build** (`COPY spec/` referenced a directory that
+  does not exist) and mounted its data volume over the application code, so
+  upgrading the image kept running stale code. Data now lives in `/data`
+  (new `BXP_DB_PATH`), the container runs as a non-root user, and the
+  healthcheck no longer needs `curl`. *(The Dockerfile change is verified only
+  by inspection and by running the same server outside Docker; Docker was not
+  available in the development sandbox — CI now builds and probes the image.)*
+- **Python SDK could not be built or installed** (invalid build backend, empty
+  package discovery for single-file modules, README outside the package,
+  console script pointing at a nonexistent module). Wheel now builds and
+  imports from a clean virtualenv. Supported Python range corrected to >=3.10
+  (what CI actually tests).
+- **TypeScript SDK could not be built or tested via npm:** `npm test` ran Jest
+  with no configuration, `npm run build` needed a missing Rollup config, and
+  `package.json` exported files that were never produced. Now `tsc`-only, ESM,
+  `npm test` runs the built-in Node test runner; dead Jest/Rollup dependencies
+  removed. The package entry point now also exports the binary codec, which
+  was previously unreachable for installed users.
+- README/docs used port 8000 in 22 examples; the server, image, SDKs, CLI and
+  Postman collection all use 5000. Fixed a nonexistent
+  `pip install -r requirements.txt` path in the Quick Start.
+- 22 lint findings (unused imports, empty f-strings).
+
+### Added
+
+- `GET /bxp/v2/nearby` and `GET /bxp/v2/sync` (spec §7 Stages 6-7); 12 tests.
+- CI now runs lint, all Python suites on 3.10-3.12, TypeScript typecheck /
+  tests / conformance / build, the wheel build+install, a Docker build+health
+  probe, and dependency audits. Least-privilege permissions, concurrency
+  cancellation, Dependabot for pip/npm/actions/docker.
+- `SECURITY.md`, `Makefile` (`make check` = everything CI runs except
+  Docker), `ruff.toml`, `requirements-dev.txt`, `sdk/python/README.md`, a
+  Development Setup section in CONTRIBUTING, and complete `.env.example`.
+- 13 new regression tests for the fixes above (ownership, rate limiter,
+  proxy header, bomb, body cap, hostile-input fuzz).
+
+
 ### Added — Federation & discovery: `/nearby` and `/sync` (spec §7 Stages 6–7)
 
 - **`GET /bxp/v2/nearby`** (§8.2.1) — "closest useful observation" lookup
@@ -18,8 +128,9 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   ranked by a blend of distance/freshness/quality — deliberately not a
   frozen formula per spec (`database.py::get_nearby_readings`).
 - **`GET /bxp/v2/sync`** (§8.2.2) — pull-based federation replication:
-  everything created after a `sinceTs` watermark, each reading carrying
-  its originating `nodeId`, plus a `nextSinceTs` cursor. Gated by a new
+  everything after an opaque `since` cursor, each reading carrying
+  its originating `nodeId`, plus a `nextCursor`. (Originally a
+  timestamp watermark; replaced, see "Reference node hardening" above.) Gated by a new
   `BXP_NODE_SYNC_TOKEN` env var if set — an explicit placeholder for the
   node trust/identity system spec §7 defers to a future RFC, not that
   system itself (same honesty pattern as the binary format's
