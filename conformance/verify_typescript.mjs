@@ -11,14 +11,14 @@
  *   npx tsx conformance/verify_typescript.mjs
  */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
 
 const { decodeBxpBinary, BXPBinaryError } = await import(
-  path.join(repoRoot, 'sdk', 'typescript', 'bxp-binary.ts')
+  pathToFileURL(path.join(repoRoot, 'sdk', 'typescript', 'bxp-binary.ts')).href
 );
 
 const manifest = JSON.parse(readFileSync(path.join(here, 'manifest.json'), 'utf8'));

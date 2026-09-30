@@ -264,15 +264,26 @@ async def _parse_submit_body(request: Request) -> "SubmitReadingsRequest":
             raise HTTPException(status_code=422, detail=json.loads(e.json()))
 
     try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        payload = json.loads(raw.decode("utf-8"), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("NaN/Infinity not allowed")))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Body is neither valid JSON nor a binary .bxp container: {e}")
     # 422, not 400, to match FastAPI's normal request-validation status code
     # for a well-formed-but-invalid JSON body (spec-level field errors).
     try:
         return SubmitReadingsRequest.model_validate(payload)
     except PydanticValidationError as e:
-        raise HTTPException(status_code=422, detail=json.loads(e.json()))
+        error_detail = json.loads(e.json())
+        def sanitize(obj):
+            if isinstance(obj, float):
+                if obj != obj or obj == float('inf') or obj == float('-inf'):
+                    return str(obj)
+                return obj
+            if isinstance(obj, dict):
+                return {k: sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [sanitize(v) for v in obj]
+            return obj
+        raise HTTPException(status_code=422, detail=sanitize(error_detail))
 
 
 # ─── AQICN cache ──────────────────────────────────────────────
@@ -574,26 +585,29 @@ async def submit_readings(request: Request, authorization: Optional[str] = Heade
 
         hri = calculate_hri(readings_dict, _duration_bucket(raw.durationS), "general")
         ts_us = raw.timestampUs or now_us
-        device_uuid = authed_device or raw.deviceUuid or str(uuid.uuid4())
-        # Includes the location and payload so two different readings a device
-        # reports for the same instant do not collide on one ID.
+        
+        # SPEC.md 9.1: anonymous submissions are stored at precision-5 only,
+        # their exact coordinates are coarsened to that cell's centre.
+        if authed_device:
+            lat, lon = raw.latitude, raw.longitude
+            stored_geohash = geo.encode_geohash(lat, lon, 7)
+            device_uuid = authed_device
+        else:
+            stored_geohash = geo.encode_geohash(raw.latitude, raw.longitude, geo.STORED_PRECISION_FLOOR)
+            lat, lon = geo.cell_center(stored_geohash)
+            # Deterministic device ID for anonymous: hash of coarsened location + timestamp
+            device_uuid = "anon_" + hashlib.sha256(
+                f"{stored_geohash}:{ts_us}".encode()
+            ).hexdigest()[:16]
+        
+        # reading_id from STORED values (not raw) so duplicates are detected
         reading_id = hashlib.sha256(
-            json.dumps([device_uuid, ts_us, raw.latitude, raw.longitude,
+            json.dumps([device_uuid, ts_us, lat, lon,
                         [(a.agentId, a.value) for a in raw.agents]]).encode()
         ).hexdigest()[:16]
         if reading_id in seen_ids:
             continue
         seen_ids.add(reading_id)
-
-        # SPEC.md 9.1: anonymous submissions are stored at precision-5 only, and
-        # their exact coordinates are coarsened to that cell's centre so the
-        # precise position is never persisted or returned.
-        if authed_device:
-            lat, lon = raw.latitude, raw.longitude
-            stored_geohash = geo.encode_geohash(lat, lon, 7)
-        else:
-            stored_geohash = geo.encode_geohash(raw.latitude, raw.longitude, geo.STORED_PRECISION_FLOOR)
-            lat, lon = geo.cell_center(stored_geohash)
 
         quality = assess_quality(readings_dict, ts_us)
         record = {

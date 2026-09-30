@@ -11,3 +11,4 @@ select = ["E9", "F", "B006", "B008", "S102", "S307", "S602", "S608"]
 
 [lint.per-file-ignores]
 "**/tests/**" = ["S608"]
+"reference-server/database.py" = ["S608"]

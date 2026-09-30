@@ -214,15 +214,15 @@ _NEXT_SEQ = "(SELECT COALESCE(MAX(seq), 0) + 1 FROM readings)"
 
 # ─── Readings ────────────────────────────────────────────────
 
-_INSERT_READING = f"""
-    INSERT OR IGNORE INTO readings
-    (reading_id, bxp_version, node_id, device_uuid,
-     timestamp_iso, timestamp_us, latitude, longitude, geohash,
-     agents_json, readings_json, bxp_hri, bxp_hri_level,
-     quality_json, quality_flag, payload_hash,
-     duration_s, indoor_outdoor, created_at, seq, agent_ids, extra_json)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,{_NEXT_SEQ},?,?)
-"""
+_INSERT_READING = (
+    "INSERT OR IGNORE INTO readings "
+    "(reading_id, bxp_version, node_id, device_uuid, "
+    "timestamp_iso, timestamp_us, latitude, longitude, geohash, "
+    "agents_json, readings_json, bxp_hri, bxp_hri_level, "
+    "quality_json, quality_flag, payload_hash, "
+    "duration_s, indoor_outdoor, created_at, seq, agent_ids, extra_json) "
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?," + _NEXT_SEQ + ",?,?)"
+)
 
 # Top-level record keys preserved verbatim if the client sent them
 # (SPEC.md section 5.7: ignore-and-preserve; section 5.9: `ext`).
@@ -294,14 +294,12 @@ def delete_reading(reading_id: str) -> Optional[str]:
             return None
         deleted_at = int(time.time())
         proof = "sha256:" + hashlib.sha256(f"{reading_id}:{deleted_at}".encode()).hexdigest()
-        conn.execute(
-            f"""UPDATE readings SET deleted=1, deletion_proof=?, seq={_NEXT_SEQ},
-                    device_uuid=NULL, latitude=NULL, longitude=NULL, geohash=NULL,
-                    agents_json='[]', readings_json='{{}}', quality_json='{{}}',
-                    agent_ids=',', extra_json=NULL, bxp_hri=NULL, payload_hash=NULL
-                WHERE reading_id=?""",
-            (proof, reading_id),
-        )
+        sql = ("UPDATE readings SET deleted=1, deletion_proof=?, seq=" + _NEXT_SEQ + ", "
+            "device_uuid=NULL, latitude=NULL, longitude=NULL, geohash=NULL, "
+            "agents_json='[]', readings_json='{}', quality_json='{}', "
+            "agent_ids=',', extra_json=NULL, bxp_hri=NULL, payload_hash=NULL "
+            "WHERE reading_id=?")  # noqa: S608 - _NEXT_SEQ is constant
+        conn.execute(sql, (proof, reading_id))
         conn.execute(
             "INSERT OR REPLACE INTO deletion_log (reading_id, deleted_at, deletion_proof) "
             "VALUES (?,?,?)",
