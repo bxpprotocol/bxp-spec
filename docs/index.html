@@ -732,7 +732,7 @@ footer{
     </div>
     <div class="stat">
       <div class="stat-num">0–100</div>
-      <div class="stat-label">BXP_HRI Scale</div>
+      <div class="stat-label">BXP-HRI (experimental) Scale</div>
     </div>
     <div class="stat">
       <div class="stat-num">DOI</div>
@@ -789,7 +789,7 @@ footer{
       <div class="what-features">
         <div class="wf"><div class="wf-icon">📄</div><div class="wf-text"><h5>.bxp File Format</h5><p>JSON-based container carrying readings, location, quality flags, payload hash for integrity, and HRI score. Machine-readable and human-readable.</p></div></div>
         <div class="wf"><div class="wf-icon">🌐</div><div class="wf-text"><h5>REST API Standard</h5><p>Standard endpoints any server can implement. Submit readings, query by geohash, aggregate over time windows, verify integrity.</p></div></div>
-        <div class="wf"><div class="wf-icon">📊</div><div class="wf-text"><h5>BXP_HRI Score</h5><p>WHO-derived composite Health Risk Index on a 0–100 scale. Comparable across all agents, locations, and time periods.</p></div></div>
+        <div class="wf"><div class="wf-icon">📊</div><div class="wf-text"><h5>BXP-HRI (experimental) Score</h5><p>WHO-derived composite Health Risk Index on a 0–100 scale. Comparable across all agents, locations, and time periods. <strong>Not clinically validated.</strong></p></div></div>
         <div class="wf"><div class="wf-icon">🔒</div><div class="wf-text"><h5>Privacy by Design</h5><p>SHA-256 hashed person IDs, geohash-5 spatial floor, k≥5 anonymity on aggregates, cryptographic deletion proof.</p></div></div>
         <div class="wf"><div class="wf-icon">🕸</div><div class="wf-text"><h5>Federated Architecture</h5><p>Any institution can run a node. Nodes interoperate. No central owner. Data sovereignty preserved at the source.</p></div></div>
       </div>
@@ -1000,9 +1000,9 @@ python cli/bxp_cli.py server-status</pre>
       </div>
       <div class="pillar">
         <div class="pillar-icon">📊</div>
-        <div class="pillar-title">BXP_HRI Score</div>
-        <div class="pillar-body">WHO-derived composite Health Risk Index. Weighted across 7 primary agents. Adjustable for exposure duration (1h/8h/24h) and population sensitivity.</div>
-        <div class="pillar-badge">§3 · HRI Specification</div>
+        <div class="pillar-title">BXP-HRI (experimental) Score</div>
+        <div class="pillar-body">WHO-derived composite Health Risk Index. Weighted across 7 primary agents. Adjustable for exposure duration (1h/8h/24h) and population sensitivity. <strong>Not clinically validated.</strong></div>
+        <div class="pillar-badge">§13 · HRI Specification</div>
       </div>
       <div class="pillar">
         <div class="pillar-icon">🔒</div>
@@ -1054,7 +1054,7 @@ python cli/bxp_cli.py server-status</pre>
   <div class="container">
     <div class="section-tag">Health Risk Index</div>
     <h2 class="section-title">One number that explains the air</h2>
-    <p class="section-sub">BXP_HRI translates complex multi-pollutant data into a single 0–100 score that is comparable across locations, agents, and time.</p>
+    <p class="section-sub">BXP-HRI (experimental) translates complex multi-pollutant data into a single 0–100 score that is comparable across locations, agents, and time. <strong>Not clinically validated.</strong></p>
 
     <div class="hri-scale" style="margin-top:2rem">
       <div class="hri-band" style="background:#00E676;flex:20"></div>

@@ -13,19 +13,20 @@
 4. [File System Architecture](#4-file-system-architecture)
 5. [The .bxp File Format](#5-the-bxp-file-format)
 6. [Agent Schema](#6-agent-schema)
-7. [Protocol Stages](#7-protocol-stages)
-8. [REST API Specification](#8-rest-api-specification)
-9. [Security & Privacy Framework](#9-security--privacy-framework)
-10. [Community Reporting Layer](#10-community-reporting-layer)
-11. [Implementation Guide](#11-implementation-guide)
-12. [Governance & Versioning](#12-governance--versioning)
-13. [BXP Health Risk Index](#13-bxp-health-risk-index)
-14. [Compatibility Matrix](#14-compatibility-matrix)
-15. [Conformance & Test Vectors](#15-conformance--test-vectors)
-16. [Appendix A — Agent Reference](#appendix-a--complete-agent-reference)
-17. [Appendix B — Geohash Reference](#appendix-b--geohash-reference)
-18. [Appendix C — Error Codes](#appendix-c--error-codes)
-19. [Appendix D — Glossary](#appendix-d--glossary)
+7. [Source Classification](#68-source-classification)
+8. [Protocol Stages](#7-protocol-stages)
+9. [REST API Specification](#8-rest-api-specification)
+10. [Security & Privacy Framework](#9-security--privacy-framework)
+11. [Community Reporting Layer](#10-community-reporting-layer)
+12. [Implementation Guide](#11-implementation-guide)
+13. [Governance & Versioning](#12-governance--versioning)
+14. [BXP Health Risk Index](#13-bxp-health-risk-index)
+15. [Compatibility Matrix](#14-compatibility-matrix)
+16. [Conformance & Test Vectors](#15-conformance--test-vectors)
+17. [Appendix A — Agent Reference](#appendix-a--complete-agent-reference)
+18. [Appendix B — Geohash Reference](#appendix-b--geohash-reference)
+19. [Appendix C — Error Codes](#appendix-c--error-codes)
+20. [Appendix D — Glossary](#appendix-d--glossary)
 
 ---
 
@@ -92,7 +93,7 @@ document are to be interpreted as described in RFC 2119.
 | Reading | A single point-in-time measurement record |
 | Aggregate | A computed summary of multiple readings over time or space |
 | Geohash | A compact geographic coordinate encoding system |
-| BXP_HRI | BXP Health Risk Index — composite health risk score (0–100) |
+| BXP-HRI (experimental) | BXP Health Risk Index — composite health risk score (0–100), **not clinically validated** |
 | Container | A portable, self-verifying file bundling one or more readings |
 | Device Token | Authentication credential issued to a data source |
 | Quality Flag | A metadata tag describing data reliability |
@@ -638,7 +639,39 @@ just isn't *this* flag.
 |----------|------|-------|-------|
 | AQI_US | US Air Quality Index | PM2.5, PM10, CO, NO2, SO2, O3 | 0–500 |
 | AQI_EU | European AQI | PM2.5, PM10, NO2, SO2, O3 | 1–5 bands |
-| BXP_HRI | BXP Health Risk Index | All available agents, weighted | 0–100 |
+| BXP_HRI_EXP | BXP Health Risk Index (experimental) | All available agents, weighted | 0–100 |
+
+---
+
+## 6.8 Source Classification
+
+Every BXP reading MUST carry a `source` field classifying its provenance. This prevents imported/external data from being misrepresented as native BXP-certified measurements.
+
+| Source Class | Code | Description | Trust Level |
+|--------------|------|-------------|-------------|
+| **NATIVE** | `native` | BXP-certified sensor, directly speaking BXP protocol | Highest — full QC chain |
+| **IMPORTED** | `imported` | Converted from external API (OpenAQ, PurpleAir, AQICN, etc.) | Medium — depends on source QC |
+| **COMMUNITY** | `community` | Low-cost / citizen sensor, no reference calibration | Low — UNVALIDATED by default |
+| **RESEARCH** | `research` | Research-grade instrument, documented calibration | High — VALIDATED if documented |
+| **SIMULATED** | `simulated` | Synthetic/test data, models, forecasts | None — for testing only |
+
+**Rules:**
+
+- `source` field is REQUIRED on all readings (top-level, not in `agents[]`)
+- `source` MUST be one of the five codes above
+- NATIVE readings MUST include `calibration` object per agent (SPEC §5.5.1) or explicit `qcMethod`
+- IMPORTED readings MUST include `ext.source` with original API name (e.g., `"openaq"`, `"purpleair"`, `"aqicn"`)
+- COMMUNITY readings default to `quality.flag = "UNVALIDATED"` unless QC evidence provided
+- SIMULATED readings MUST NOT be served on production `/nearby` or `/latest` endpoints
+
+**Example:**
+```json
+{
+  "source": "imported",
+  "ext": { "source": "openaq", "originalId": "location-8118" },
+  "quality": { "flag": "UNVALIDATED", "confidence": 0.5 }
+}
+```
 
 ---
 
@@ -725,9 +758,9 @@ All readings MUST be converted to BXP canonical units:
 
 ### Stage 4 — PROTECT
 
-**BXP Risk Level Framework:**
+**BXP Risk Level Framework (based on BXP-HRI experimental):**
 
-| Level | BXP_HRI | AQI Equiv | Color | General Population | Sensitive Groups |
+| Level | BXP-HRI (exp.) | AQI Equiv | Color | General Population | Sensitive Groups |
 |-------|---------|-----------|-------|-------------------|-----------------|
 | CLEAN | 0–20 | 0–50 | Green | No restrictions | No restrictions |
 | MODERATE | 21–40 | 51–100 | Yellow | Acceptable for most | Limit heavy exertion |
@@ -1220,7 +1253,7 @@ Any application reading or displaying BXP data MUST:
   INVALID data as reliable without explicit labeling
 - Use BXP canonical units with clear unit labels on all displays
 - Implement the BXP risk level framework (Section 7, Stage 4)
-- Use the correct BXP_HRI color scheme for risk visualization
+- Use the correct BXP-HRI (experimental) color scheme for risk visualization
 - Never cache personal exposure data beyond the immediate session
 - Respect user deletion requests immediately and completely
 
@@ -1277,14 +1310,16 @@ All specification changes follow the BXP RFC process:
 
 ---
 
-## 13. BXP Health Risk Index
+## 13. BXP-HRI (Experimental) — Health Risk Index
 
 ### 13.1 Overview
 
-BXP_HRI is BXP's native composite health risk score on a 0–100
-scale. Unlike single-pollutant indices such as AQI, BXP_HRI
+**BXP-HRI (experimental)** is BXP's native composite health risk score on a 0–100
+scale. Unlike single-pollutant indices such as AQI, BXP-HRI
 incorporates all available agents with WHO-derived weighting,
 exposure duration, and population vulnerability modifiers.
+
+**⚠️ Not clinically or epidemiologically validated. Do not use for medical decisions.**
 
 ### 13.2 Agent Weights
 
@@ -1316,7 +1351,7 @@ raw_HRI = Σ ( agent_risk(i) × weight(i) )
 **Step 3 — Apply duration and vulnerability modifiers:**
 
 ```
-BXP_HRI = min(100, raw_HRI × 100 × duration_factor
+bxp_hri_experimental = min(100, raw_HRI × 100 × duration_factor
                               × vulnerability_factor)
 ```
 
@@ -1369,7 +1404,7 @@ VULNERABILITY_FACTORS = {
     "sensitive": 1.3,
 }
 
-def calculate_bxp_hri(agents, duration="1h", population="general"):
+def calculate_bxp_hri_experimental(agents, duration="1h", population="general"):
     raw_hri = 0.0
     for agent_id, value in agents.items():
         if agent_id in WHO_THRESHOLDS and agent_id in WEIGHTS:
@@ -1377,9 +1412,9 @@ def calculate_bxp_hri(agents, duration="1h", population="general"):
             raw_hri += risk * WEIGHTS[agent_id]
     duration_factor = DURATION_FACTORS.get(duration, 1.0)
     vulnerability_factor = VULNERABILITY_FACTORS.get(population, 1.0)
-    bxp_hri = min(100.0, raw_hri * 100 * duration_factor
+    bxp_hri_exp = min(100.0, raw_hri * 100 * duration_factor
                                        * vulnerability_factor)
-    return round(bxp_hri, 2)
+    return round(bxp_hri_exp, 2)
 
 
 # Example usage
@@ -1389,9 +1424,9 @@ agents = {
     "CO": 1.2,
 }
 
-hri = calculate_bxp_hri(agents, duration="1h", population="general")
-print(f"BXP_HRI: {hri}")
-# Output: BXP_HRI: 34.21  →  MODERATE
+hri = calculate_bxp_hri_experimental(agents, duration="1h", population="general")
+print(f"BXP-HRI (experimental): {hri}")
+# Output: BXP-HRI (experimental): 34.21  →  MODERATE
 ```
 
 ---
@@ -1400,7 +1435,7 @@ print(f"BXP_HRI: {hri}")
 
 | Standard | Organization | BXP Compatibility |
 |----------|-------------|-------------------|
-| AQI | US EPA | BXP_HRI maps directly. AQI_US is a supported derived field. |
+| AQI | US EPA | BXP-HRI (experimental) maps directly. AQI_US is a supported derived field. |
 | WHO Air Quality Guidelines 2021 | World Health Organization | All BXP thresholds align with WHO 2021 guidelines. |
 | HL7 FHIR R4 | HL7 International | BXP exposure records map to FHIR Observation resources. |
 | OGC SensorThings API | Open Geospatial Consortium | BXP implements a compatible observation model. |
@@ -1505,7 +1540,7 @@ reproducible.
 | PRESS | Atmospheric Pressure | Environmental | hPa | — |
 | UV | UV Index | Environmental | index | — |
 | AQI_US | US Air Quality Index | Derived | 0–500 | — |
-| BXP_HRI | BXP Health Risk Index | Derived | 0–100 | — |
+| BXP_HRI_EXP | BXP Health Risk Index (experimental) | Derived | 0–100 | — |
 
 ---
 

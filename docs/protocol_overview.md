@@ -32,19 +32,21 @@ more atmospheric exposure readings. Every .bxp file contains:
 - When and where the measurement was taken
 - What was measured (any combination of 31 atmospheric agents)
 - How reliable the measurement is (quality flags)
-- A composite health risk score (BXP_HRI)
+- A composite health risk score (BXP-HRI, experimental)
 - A cryptographic hash for integrity verification
 
 Any device can generate a .bxp file. Any system can read it.
 
-### The BXP_HRI
+### The BXP-HRI (Experimental)
 
 The BXP Health Risk Index is a composite score from 0-100 representing
 overall atmospheric health risk. Unlike single-pollutant indices (US AQI,
-European CAQI), BXP_HRI incorporates all available agents simultaneously,
+European CAQI), BXP-HRI incorporates all available agents simultaneously,
 weighted by their actual contribution to global disease burden (WHO DALYs).
 
-BXP_HRI levels:
+**⚠️ Not clinically or epidemiologically validated. Do not use for medical decisions.**
+
+BXP-HRI levels:
 - 0-20:   CLEAN      — No restrictions
 - 21-40:  MODERATE   — Sensitive groups: limit exertion
 - 41-60:  ELEVATED   — Reduce heavy outdoor exertion

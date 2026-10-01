@@ -226,7 +226,7 @@ _INSERT_READING = (
 
 # Top-level record keys preserved verbatim if the client sent them
 # (SPEC.md section 5.7: ignore-and-preserve; section 5.9: `ext`).
-PRESERVED_EXTRA_KEYS = ("ext", "context", "signature", "sourceQuality")
+PRESERVED_EXTRA_KEYS = ("ext", "context", "signature", "sourceQuality", "source")
 
 
 def _reading_params(record: dict) -> tuple:

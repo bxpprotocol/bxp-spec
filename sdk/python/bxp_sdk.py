@@ -357,6 +357,7 @@ def _build_bxp_record(data: dict, device_uuid: Optional[str] = None) -> dict:
         "timestampUs":   data.get("timestampUs", now_us),
         "durationS":     data.get("durationS", 60),
         "indoorOutdoor": data.get("indoorOutdoor", "outdoor"),
+        "source":        data.get("source", "native"),
         "agents":        agents,
         "context":       data.get("context"),
         "quality": {
@@ -513,9 +514,14 @@ def validate_bxp_record(record: dict) -> dict:
     errors   = []
     warnings = []
 
-    for field in ["bxpVersion", "deviceUuid", "geohash", "timestampUs", "agents"]:
+    for field in ["bxpVersion", "deviceUuid", "geohash", "timestampUs", "agents", "source"]:
         if field not in record or record[field] is None:
             errors.append(f"Missing required field: {field}")
+
+    valid_sources = {"native", "imported", "community", "research", "simulated"}
+    src = record.get("source")
+    if src and src not in valid_sources:
+        errors.append(f"Invalid source '{src}' — must be one of: {', '.join(sorted(valid_sources))}")
 
     gh = record.get("geohash", "")
     if gh and len(gh) < 5:

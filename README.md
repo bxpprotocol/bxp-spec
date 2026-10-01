@@ -43,7 +43,7 @@ Every sensor manufacturer, government agency, and research network uses incompat
 | | |
 |---|---|
 | 📄 **`.bxp.json`** | A universal file format for atmospheric exposure data — one schema for any source, any location, any pollutant |
-| 🩺 **BXP_HRI** | A composite Health Risk Index (0–100) derived from all available agents, weighted by WHO disease-burden data |
+| 🩺 **BXP-HRI (experimental)** | A composite Health Risk Index (0–100) derived from all available agents, weighted by WHO disease-burden data — **not clinically validated** |
 | 🌐 **REST API** | A standard set of endpoints any BXP node must implement, so any client can query any node |
 | 🧪 **30+ atmospheric agents** | PM1, PM2.5, PM10, NO₂, O₃, CO, SO₂, benzene, formaldehyde, mold spores, heavy metals, and more — see [Appendix A](SPEC.md#appendix-a--complete-agent-reference) |
 | 🔒 **Privacy framework** | SHA-256 hashed identifiers, geohash precision floors, k-anonymisation, cryptographic deletion |
@@ -195,7 +195,7 @@ flowchart LR
 | LOCATE | Geographic context attached (geohash, coordinates) |
 | DETECT | Source classified (Tier 1 phone → Tier 3 reference instrument) |
 | INTERPRET | QC applied, units normalised, quality flag assigned |
-| PROTECT | BXP_HRI calculated, risk level and advice generated |
+| PROTECT | BXP-HRI (experimental) calculated, risk level and advice generated |
 | REPORT | Stored, queryable, privacy-safe |
 
 ```mermaid
@@ -215,9 +215,9 @@ flowchart TB
 
 No node owns the network — any organisation runs its own, and clients can query across nodes using the same schema and API.
 
-## BXP_HRI — Health Risk Index
+## BXP-HRI (experimental) — Health Risk Index
 
-A composite 0–100 score incorporating all available agents simultaneously, weighted by WHO disability-adjusted life year burden data:
+A composite 0–100 score incorporating all available agents simultaneously, weighted by WHO disability-adjusted life year burden data. **Not clinically or epidemiologically validated — do not use for medical decisions.**
 
 | Score | Level | Guidance |
 |-------|-------|----------|

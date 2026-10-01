@@ -28,6 +28,7 @@ SAMPLE_DATA = {
     "latitude": 5.5571,
     "longitude": -0.1969,
     "timestampUs": 1710000000000000,
+    "source": "native",
     "agents": [
         {"agentId": "PM2_5", "value": 12.0, "unit": "ug/m3"},
     ],
