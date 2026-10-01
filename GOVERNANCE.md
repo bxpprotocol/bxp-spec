@@ -8,7 +8,7 @@
 - **Current Governance**: Single maintainer (Elvarin) — no formal foundation or committee exists yet
 - **Legal Entity**: None yet. Apache 2.0 licensed code. No incorporated foundation, no trademark registration.
 - **License**: Apache 2.0 — free to use, implement, modify, distribute
-- **Domains**: `github.com/bxpprotocol` (GitHub org). `bxp-protocol.org` — not registered.
+- **Domains**: `github.com/bxpprotocol` (GitHub org). No project domain registered.
 - **Trademarks**: None registered.
 - **Contact**: bxpprotocol@proton.me (personal email), GitHub Issues (technical)
 
@@ -38,7 +38,7 @@ The following are **intentions**, not current reality:
 3. **Working Groups** — Hardware, Software, Privacy, Health, Community
 4. **Advisory Board** — WHO, agencies, manufacturers, academia, civil society
 5. **Trademark Registration** — Defensive holding by Foundation
-6. **Domain Registration** — bxp-protocol.org
+6. **Domain Registration** — TBD
 7. **Financial Transparency** — Annual reports
 
 ## Succession & Continuity (Current Risk)
@@ -73,7 +73,7 @@ An implementation is "BXP 2.0 Compliant" iff it passes all 17 conformance vector
 
 ## History
 
-- v1.0: Internal draft (2024)
+- v1.0: Internal draft (2026-01 to 2026-08)
 - v2.0: Public release with conformance model (2026-09) — **CURRENT STABLE**
 - v2.1: Planned (SDK packaging, embedded codec)
 - v3.0: Planned 2027 (water/soil, mesh, FHIR)

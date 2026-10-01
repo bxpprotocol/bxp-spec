@@ -8,6 +8,10 @@
   <a href="https://doi.org/10.5281/zenodo.18906812"><img alt="Spec DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.18906812.svg"></a>
   <a href="https://github.com/bxpprotocol/bxp-spec/actions"><img alt="CI" src="https://github.com/bxpprotocol/bxp-spec/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/bxpprotocol/bxp-spec"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-bxpprotocol-black.svg"></a>
+  <a href="https://pypi.org/project/bxp-sdk/"><img alt="PyPI" src="https://img.shields.io/badge/PyPI-bxp--sdk-3775A9.svg?logo=pypi&logoColor=white"></a>
+  <a href="https://www.npmjs.com/package/@bxp/sdk"><img alt="npm" src="https://img.shields.io/badge/npm-@bxp%2Fsdk-CB3837.svg?logo=npm&logoColor=white"></a>
+  <a href="https://discord.gg/bxp"><img alt="Discord" src="https://img.shields.io/badge/Discord-BXP%20Community-5865F2.svg?logo=discord&logoColor=white"></a>
+  <a href="GOVERNANCE.md"><img alt="Governance" src="https://img.shields.io/badge/Governance-Transparent-8A2BE2.svg"></a>
 </p>
 
 <p align="center">
@@ -17,18 +21,26 @@
 </p>
 
 <p align="center">
+  <a href="https://bxpprotocol.github.io/bxp-spec/validator.html"><img alt="Try Validator" src="https://img.shields.io/badge/🔍_Live_Validator-Try_It_Now-FF6B35.svg?style=for-the-badge"></a>
+  <a href="#quick-start"><img alt="Quick Start" src="https://img.shields.io/badge/🚀_Quick_Start-30_Seconds-00D9AA.svg?style=for-the-badge"></a>
+  <a href="https://github.com/bxpprotocol/bxp-spec/discussions"><img alt="Discussions" src="https://img.shields.io/badge/💬_Discussions-Join_Us-6F42C1.svg?style=for-the-badge"></a>
+</p>
+
+<p align="center">
   <a href="#the-problem">The Problem</a> ·
   <a href="#the-solution">The Solution</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#bxp_hri--health-risk-index">Health Risk Index</a> ·
   <a href="#current-status">Status</a> ·
-  <a href="#documentation">Docs</a>
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#documentation">Docs</a> ·
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
 
-## The Problem
+## 🎯 The Problem
 
 Air pollution causes **7 million premature deaths annually** — more than HIV, malaria, and tuberculosis combined (WHO, 2021).
 
@@ -38,7 +50,7 @@ Every sensor manufacturer, government agency, and research network uses incompat
 
 **The barrier is not hardware. It is data fragmentation.**
 
-## The Solution
+## ✨ The Solution
 
 | | |
 |---|---|
@@ -49,13 +61,14 @@ Every sensor manufacturer, government agency, and research network uses incompat
 | 🔒 **Privacy framework** | SHA-256 hashed identifiers, geohash precision floors, k-anonymisation, cryptographic deletion |
 | 🕸️ **Federated architecture** | No central owner — any organisation can run a BXP node on their own infrastructure |
 
-## Repository Structure
+## 📦 Repository Structure
 
 ```
 bxp-protocol/
 ├── SPEC.md                          Protocol specification v2.0
 ├── CHANGELOG.md                     Development history
 ├── CONTRIBUTING.md                  Contribution guide
+├── GOVERNANCE.md                    Project governance & transparency
 ├── reference-server/
 │   ├── server.py                    FastAPI reference node v2.1
 │   ├── database.py                  SQLite persistence layer
@@ -89,28 +102,47 @@ bxp-protocol/
 └── docker-compose.yml
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
-### Run the reference server
+<details open>
+<summary><b>🐳 Docker (Recommended)</b></summary>
 
 ```bash
+# Clone and start in one command
+git clone https://github.com/bxpprotocol/bxp-spec.git
+cd bxp-spec
+docker compose up
+```
+
+**Open:** `http://localhost:5000` — Dashboard | `http://localhost:5000/docs` — Interactive API | `http://localhost:5000/health` — Health check
+
+</details>
+
+<details>
+<summary><b>🐍 Python (pip)</b></summary>
+
+```bash
+# Install SDK
+pip install bxp-sdk  # coming in v2.1
+
+# Or run from source
 pip install -r reference-server/requirements.txt
 cd reference-server && python server.py
 ```
 
-Server starts at **http://localhost:5000**
-Interactive API docs: **http://localhost:5000/docs**
-Dashboard: **http://localhost:5000/**
+</details>
 
-Optional: set `AQICN_TOKEN` for live global city data (free at https://aqicn.org/api/).
-
-### Docker
+<details>
+<summary><b>📦 Node.js (npm)</b></summary>
 
 ```bash
-docker compose up
+# Install SDK
+npm install @bxp/sdk  # coming in v2.1
 ```
 
-## Using the Python SDK
+</details>
+
+### Using the Python SDK
 
 ```python
 from bxp_sdk import write_bxp, read_bxp, calculate_risk, BXPClient
@@ -123,7 +155,8 @@ print(risk["level"])   # VERY_HIGH
 # Write a .bxp.json file
 record = write_bxp("accra.bxp.json", {
     "latitude": 5.6037, "longitude": -0.1870,
-    "pm25": 47.2, "no2": 18.3, "temp": 29.0
+    "pm25": 47.2, "no2": 18.3, "temp": 29.0,
+    "source": "native"  # NEW in v2.0: source classification
 })
 print(record["bxpHri"])       # 61.2
 print(record["bxpHriLevel"])  # HIGH
@@ -137,7 +170,7 @@ client = BXPClient("http://localhost:5000")
 result = client.submit(latitude=5.6037, longitude=-0.1870, pm25=47.2)
 ```
 
-## Using the CLI
+### Using the CLI
 
 ```bash
 # Generate a .bxp.json file
@@ -161,6 +194,17 @@ python cli/bxp_cli.py export reading.bxp.json --format csv
 # Generate HTML map
 python cli/bxp_cli.py map ./readings/ --output map.html
 ```
+
+## 🎮 Live Demo
+
+| Tool | Link | Description |
+|------|------|-------------|
+| **JSON Validator** | [bxpprotocol.github.io/bxp-spec/validator.html](https://bxpprotocol.github.io/bxp-spec/validator.html) | Paste JSON → instant validation + HRI calculation |
+| **API Docs (Swagger)** | `http://localhost:5000/docs` | Interactive OpenAPI 3.0 docs (run server first) |
+| **Dashboard** | `http://localhost:5000/` | Live city data, maps, health advisories |
+| **Postman Collection** | `postman/BXP_Protocol.postman_collection.json` | Ready-to-use API requests |
+
+> 💡 **No install needed** — try the validator in your browser right now.
 
 ## API Examples
 
