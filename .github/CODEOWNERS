@@ -1,0 +1,38 @@
+# BXP Protocol - Code Owners
+
+# Global owners
+* @bxpprotocol/maintainers
+
+# Specification
+SPEC.md @bxpprotocol/maintainers
+CHANGELOG.md @bxpprotocol/maintainers
+
+# Reference server
+reference-server/ @bxpprotocol/maintainers
+
+# SDKs
+sdk/python/ @bxpprotocol/maintainers
+sdk/typescript/ @bxpprotocol/maintainers
+
+# Conformance - critical for protocol integrity
+conformance/ @bxpprotocol/maintainers
+
+# CLI
+cli/ @bxpprotocol/maintainers
+
+# Integrations
+integrations/ @bxpprotocol/maintainers
+
+# Documentation
+docs/ @bxpprotocol/maintainers
+README.md @bxpprotocol/maintainers
+CONTRIBUTING.md @bxpprotocol/maintainers
+GOVERNANCE.md @bxpprotocol/maintainers
+SECURITY.md @bxpprotocol/maintainers
+
+# CI/CD
+.github/workflows/ @bxpprotocol/maintainers
+
+# Packaging (future)
+pyproject.toml @bxpprotocol/maintainers
+package.json @bxpprotocol/maintainers

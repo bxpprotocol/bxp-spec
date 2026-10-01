@@ -1,0 +1,84 @@
+---
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement for BXP Protocol
+title: "[FEATURE] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please describe your idea and why it would be valuable to the BXP ecosystem.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which area does this feature relate to?
+      options:
+        - Specification (new agents, fields, API endpoints)
+        - Reference Server (new endpoints, performance, auth)
+        - Python SDK (new functions, better API)
+        - TypeScript SDK (new functions, better API)
+        - CLI Tool (new commands, better UX)
+        - Conformance Tests (new vectors, edge cases)
+        - Integrations (new data sources, protocols)
+        - Documentation (tutorials, examples, API docs)
+        - Embedded/Hardware (ESP32, Arduino, C codec)
+        - Federation/Node Trust
+        - Privacy/Anonymization
+        - HRI/Health Metrics
+        - Packaging/Distribution (PyPI, npm, Docker)
+        - CI/CD/Infrastructure
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this solve? Who has this problem?
+      placeholder: "Currently, there's no way to import data from PurpleAir sensors into BXP format..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your proposed solution in detail.
+      placeholder: "Add a PurpleAir importer similar to openaq_import.py that fetches from api.purpleair.com and converts to valid BXP records with source: 'imported'..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other solutions did you consider? Why is this the best approach?
+      placeholder: "Could have used a generic CSV importer, but PurpleAir has a specific API that allows real-time streaming..."
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this to you?
+      options:
+        - Critical (blocking adoption)
+        - High (needed for production use)
+        - Medium (nice to have)
+        - Low (future consideration)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Willingness to Contribute
+      options:
+        - label: I am willing to implement this feature (PR welcome!)
+        - label: I can help test this feature
+        - label: I can help write documentation for this feature
+        - label: This requires specification changes (RFC process per CONTRIBUTING.md)
+        - label: This requires conformance test updates

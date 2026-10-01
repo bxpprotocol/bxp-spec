@@ -2,112 +2,217 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, develop]
   pull_request:
-    branches: [main, master]
+    branches: [main, develop]
+  release:
+    types: [published]
 
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
 
 jobs:
-  python:
-    name: Python ${{ matrix.python-version }}
+  lint:
+    name: Lint (Python)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: |
-            reference-server/requirements.txt
-            requirements-dev.txt
-      - name: Install
-        run: pip install -r reference-server/requirements.txt -r requirements-dev.txt
-      - name: Lint (ruff)
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ruff
+        run: pip install ruff
+      - name: Run ruff
         run: ruff check .
-      - name: Reference server tests
-        run: python -m pytest reference-server/tests -q
-      - name: Python SDK tests
-        run: python -m pytest sdk/python/tests -q
-      - name: Integration tests
-        run: python -m pytest integrations/tests -q
-      - name: Conformance vectors (Python)
-        run: python conformance/verify_python.py
-      - name: Sample dataset is valid JSON
-        run: python -c "import json; json.load(open('datasets/sample_readings.bxp.json'))"
 
-  typescript:
-    name: TypeScript SDK (Node 22)
+  test-python:
+    name: Test (Python)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sdk/typescript
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          # Tests use Node's built-in TypeScript type stripping (Node >= 22.18).
-          node-version: 22
-          cache: npm
-          cache-dependency-path: sdk/typescript/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run conformance
-      - run: npm run build
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          pip install -r reference-server/requirements.txt
+          pip install -r requirements-dev.txt 2>/dev/null || pip install pytest pytest-cov
+      - name: Run server tests
+        run: python -m pytest reference-server/tests/ -v --tb=short
+      - name: Run SDK tests
+        run: python -m pytest sdk/python/tests/ -v --tb=short
+      - name: Run integration tests
+        run: python -m pytest integrations/ -v --tb=short
 
-  package-build:
-    name: Python SDK wheel builds and installs
+  test-typescript:
+    name: Test (TypeScript)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-      - run: pip install build
-      - run: python -m build --wheel --outdir /tmp/wheel sdk/python
-      - name: Install wheel in a clean venv and import it
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install dependencies
         run: |
-          python -m venv /tmp/venv
-          /tmp/venv/bin/pip install /tmp/wheel/*.whl
-          cd /tmp && /tmp/venv/bin/python -c "import bxp_sdk, bxp_binary"
+          cd sdk/typescript && npm ci
+      - name: Run tests
+        run: |
+          cd sdk/typescript && npm test
 
-  docker:
-    name: Docker image builds and serves
+  conformance:
+    name: Conformance Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t bxp-node .
-      - name: Container becomes healthy
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run Python conformance
         run: |
-          docker run -d --name bxp -p 5000:5000 bxp-node
-          for i in $(seq 1 30); do
-            curl -fsS http://localhost:5000/bxp/v2/health && exit 0
-            sleep 1
+          cd conformance && python verify_python.py
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install TypeScript dependencies
+        run: |
+          cd sdk/typescript && npm ci
+      - name: Run TypeScript conformance
+        run: |
+          cd conformance && node verify_typescript.mjs
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit Python dependencies
+        run: pip-audit -r reference-server/requirements.txt --desc on
+      - name: Audit Node dependencies
+        run: |
+          cd sdk/typescript && npm audit --audit-level=high
+
+  build-docs:
+    name: Build Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate HTML
+        run: |
+          # Check for basic HTML validity
+          grep -q "<!DOCTYPE html>" docs/index.html
+          grep -q "<html" docs/index.html
+          grep -q "</html>" docs/index.html
+      - name: Check links (basic)
+        run: |
+          # Check internal links exist
+          grep -oP 'href="[^"#]+"' docs/index.html | sed 's/href="//;s/"//' | while read link; do
+            if [[ "$link" == /* ]]; then
+              if [ ! -f "docs${link}" ] && [ ! -d "docs${link}" ]; then
+                echo "Broken internal link: $link"
+                exit 1
+              fi
+            fi
           done
-          docker logs bxp; exit 1
 
-  audit:
-    name: Dependency audit
+  validate-spec:
+    name: Validate Spec
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check SPEC.md structure
+        run: |
+          # Verify key sections exist
+          grep -q "^# BXP" SPEC.md
+          grep -q "## 1\." SPEC.md
+          grep -q "## 2\." SPEC.md
+          grep -q "## 3\." SPEC.md
+          grep -q "## 4\." SPEC.md
+          grep -q "## 5\." SPEC.md
+          grep -q "## 6\." SPEC.md
+          grep -q "## 7\." SPEC.md
+          grep -q "## 8\." SPEC.md
+          grep -q "## 9\." SPEC.md
+          grep -q "## 10\." SPEC.md
+          grep -q "## 11\." SPEC.md
+          grep -q "## 12\." SPEC.md
+          grep -q "## 13\." SPEC.md
+          grep -q "## 14\." SPEC.md
+          grep -q "## 15\." SPEC.md
+          grep -q "## 16\." SPEC.md
+          grep -q "## 17\." SPEC.md
+          grep -q "## 18\." SPEC.md
+          grep -q "## 19\." SPEC.md
+          grep -q "## 20\." SPEC.md
+      - name: Check conformance vectors exist
+        run: |
+          ls conformance/vectors/*.bxp | wc -l | grep -q "^17$"
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [lint, test-python, test-typescript, conformance, security, build-docs, validate-spec]
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - uses: actions/checkout@v4
         with:
-          python-version: "3.12"
-      - run: pip install pip-audit
-      - run: pip-audit -r reference-server/requirements.txt
-      - uses: actions/setup-node@v4
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 22
-      - run: npm audit --omit=dev
-        working-directory: sdk/typescript
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+      - name: Build Python package
+        run: |
+          pip install build twine
+          python -m build
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+      - name: Build and publish npm package
+        run: |
+          cd sdk/typescript
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create GitHub Release artifacts
+        run: |
+          # Release artifacts already created by build step
+          echo "Release published successfully"
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [build-docs]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,112 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+categories:
+  - title: '💥 Breaking Changes'
+    labels:
+      - 'breaking'
+      - 'major'
+  - title: '✨ Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+      - 'minor'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'fix'
+      - 'patch'
+  - title: '📝 Documentation'
+    labels:
+      - 'documentation'
+      - 'docs'
+  - title: '🧪 Tests'
+    labels:
+      - 'test'
+      - 'testing'
+  - title: '⚡ Performance'
+    labels:
+      - 'performance'
+      - 'optimization'
+  - title: '🔧 CI/CD & Infrastructure'
+    labels:
+      - 'ci'
+      - 'infrastructure'
+      - 'github-actions'
+  - title: '📦 Packaging & Distribution'
+    labels:
+      - 'packaging'
+      - 'pypi'
+      - 'npm'
+      - 'docker'
+  - title: '🔒 Security'
+    labels:
+      - 'security'
+      - 'vulnerability'
+  - title: '🗑️ Deprecated/Removed'
+    labels:
+      - 'deprecated'
+      - 'removed'
+exclude-labels:
+  - 'skip-changelog'
+  - 'wip'
+template: |
+  ## Changes
+
+  $CHANGES
+
+  ---
+
+  ### 📦 Installation
+
+  **Docker:**
+  ```bash
+  docker pull ghcr.io/bxpprotocol/bxp-spec:v$RESOLVED_VERSION
+  docker compose up
+  ```
+
+  **Python SDK (coming v2.1):**
+  ```bash
+  pip install bxp-sdk==$RESOLVED_VERSION
+  ```
+
+  **TypeScript SDK (coming v2.1):**
+  ```bash
+  npm install @bxp/sdk@$RESOLVED_VERSION
+  ```
+
+  ---
+
+  ### 📋 Conformance
+
+  All releases pass 17/17 conformance vectors (Python + TypeScript).
+  Verify: `python conformance/verify_python.py && node conformance/verify_typescript.mjs`
+
+  ---
+
+  ### 🔗 Links
+
+  - **Specification:** https://bxpprotocol.github.io/bxp-spec/SPEC.md
+  - **API Docs:** https://bxpprotocol.github.io/bxp-spec/docs/api_documentation.md
+  - **Validator:** https://bxpprotocol.github.io/bxp-spec/validator.html
+  - **GitHub:** https://github.com/bxpprotocol/bxp-spec
+  - **Changelog:** https://github.com/bxpprotocol/bxp-spec/blob/main/CHANGELOG.md
+
+  ---
+
+  *Full changelog: https://github.com/bxpprotocol/bxp-spec/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION*
+version-resolver:
+  major:
+    labels:
+      - 'major'
+      - 'breaking'
+  minor:
+    labels:
+      - 'minor'
+      - 'feature'
+      - 'enhancement'
+  patch:
+    labels:
+      - 'patch'
+      - 'bug'
+      - 'fix'
+  default: patch

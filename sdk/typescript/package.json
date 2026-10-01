@@ -1,8 +1,8 @@
 {
-  "name": "bxp-sdk",
+  "name": "@bxp/sdk",
   "version": "2.1.0",
   "type": "module",
-  "description": "BXP Protocol SDK \u2014 Breathe Exposure Protocol for atmospheric exposure data",
+  "description": "BXP (Breathe Exposure Protocol) TypeScript SDK — Universal atmospheric exposure data interoperability",
   "main": "dist/bxp-sdk.js",
   "module": "dist/bxp-sdk.js",
   "types": "dist/bxp-sdk.d.ts",
@@ -20,22 +20,45 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/*.test.ts\"",
     "conformance": "node ../../conformance/verify_typescript.mjs",
+    "lint": "eslint . --ext .ts",
     "prepublishOnly": "npm run typecheck && npm test && npm run conformance && npm run build"
   },
   "keywords": [
     "air-quality",
-    "atmospheric",
-    "bxp",
-    "iot",
-    "health",
-    "sensor"
+    "atmospheric-exposure",
+    "environmental-data",
+    "data-interoperability",
+    "open-standard",
+    "health-risk-index",
+    "federated-network",
+    "protocol",
+    "sensor-data",
+    "pm25",
+    "environmental-monitoring",
+    "public-health",
+    "typescript",
+    "javascript",
+    "nodejs",
+    "browser"
   ],
-  "author": "BXP Protocol <bxpprotocol@proton.me>",
+  "author": {
+    "name": "BXP Protocol Contributors",
+    "email": "bxpprotocol@proton.me",
+    "url": "https://bxpprotocol.github.io/bxp-spec/"
+  },
   "license": "Apache-2.0",
-  "homepage": "https://github.com/bxpprotocol/bxp-spec",
+  "homepage": "https://bxpprotocol.github.io/bxp-spec/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bxpprotocol/bxp-spec"
+    "url": "https://github.com/bxpprotocol/bxp-spec",
+    "directory": "sdk/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/bxpprotocol/bxp-spec/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/bxpprotocol"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
@@ -43,5 +66,10 @@
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "sideEffects": false
 }

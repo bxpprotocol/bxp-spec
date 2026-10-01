@@ -1,0 +1,114 @@
+---
+name: 🐛 Bug Report
+description: Report a bug in the BXP Protocol implementation
+title: "[BUG] "
+labels: ["bug", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below to help us reproduce and fix the issue.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of BXP is affected?
+      options:
+        - Reference Server (FastAPI)
+        - Python SDK (bxp_sdk.py, bxp_binary.py)
+        - TypeScript SDK (bxp-sdk.ts, bxp-binary.ts)
+        - CLI Tool (bxp_cli.py)
+        - Conformance Tests
+        - Integrations (MQTT Bridge, OpenAQ Importer)
+        - Specification (SPEC.md)
+        - Documentation
+        - CI/CD / Infrastructure
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version/Commit
+      description: Which version or commit are you using? (e.g., v2.1, commit abc123, main branch)
+      placeholder: "v2.1 or commit hash"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: "When I call calculate_risk() with PM2.5=50, it returns NaN instead of a score..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior. Include code snippets, commands, or API calls.
+      placeholder: |
+        1. Run `python cli/bxp_cli.py generate --pm25 50 --lat 0 --lon 0`
+        2. Observe error: ...
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+      placeholder: "Should return a valid BXP-HRI score between 0-100"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened. Include error messages, stack traces, logs.
+      placeholder: "Returns NaN with TypeError: cannot convert float NaN to integer"
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Your environment details
+      placeholder: |
+        - OS: Ubuntu 22.04 / Windows 11 / macOS 14
+        - Python: 3.10.12
+        - Node.js: 20.10.0 (if TS SDK)
+        - Docker: 24.0.0 (if using Docker)
+        - Browser: Chrome 118 (if validator.html)
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or logs that might help.
+      placeholder: "This started happening after upgrading to Python 3.11..."
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues for duplicates
+          required: true
+        - label: I have tested against the latest main branch
+          required: true
+        - label: This is not a security vulnerability (if it is, use SECURITY.md instead)
+          required: true

@@ -1,252 +1,163 @@
-# Contributing to BXP
+# Contributing to BXP Protocol
 
-Thank you for your interest in contributing to the Breathe Exposure
-Protocol. BXP is an open standard governed by the BXP Foundation.
-Every contribution — no matter how small — helps build the
-infrastructure that protects billions of people's health.
+Thank you for your interest in contributing to the Breathe Exposure Protocol. BXP is an open universal standard for atmospheric exposure data interoperability — Apache 2.0 licensed, no gatekeepers.
 
 ---
 
-## What We Need Most Right Now
-
-BXP v2.0 specification is complete. The most valuable contributions
-at this stage are:
-
-- **Implementations** — build BXP-compatible tools, SDKs, or servers
-  in any language
-- **Validation** — review the specification for technical errors,
-  ambiguities, or gaps
-- **Testing** — write test cases that verify BXP-compliant behavior
-- **Documentation** — improve clarity, add examples, translate to
-  other languages
-- **Real-world testing** — implement BXP in an actual air quality
-  project and report findings
-- **RFC proposals** — propose improvements or extensions to the
-  specification
-
----
-
-## Development Setup
-
-Requirements: Python 3.10+, Node 22.18+ (the TypeScript tests use Node's
-built-in type stripping), and `make`.
+## Quick Start
 
 ```bash
+# Clone and setup
+git clone https://github.com/bxpprotocol/bxp-spec.git
+cd bxp-spec
 make install       # Python + TypeScript dev dependencies
 make check         # lint + typecheck + all tests + conformance vectors
-make run           # start a local node on http://localhost:5000
+make run           # start local node on http://localhost:5000
 ```
 
-`make check` runs the same steps as CI. Individual targets: `lint`,
-`typecheck`, `test`, `conformance`. Configuration is via environment
-variables; copy `.env.example` to `.env` for the full list.
+`make check` mirrors CI. Individual targets: `lint`, `typecheck`, `test`, `conformance`.
 
-Two implementations of the binary format (Python and TypeScript) are checked
-against the same golden files in `conformance/`. If you change the wire
-format, regenerate the vectors (`python conformance/generate_vectors.py`) and
-make sure **both** `verify_python.py` and `verify_typescript.mjs` pass.
-
-Found a security issue? See [SECURITY.md](SECURITY.md) — do not open a
-public issue.
+---
 
 ## Ways to Contribute
 
-### 1. Report an Issue
+### 🐛 Report a Bug
+Use the **[Bug Report template](.github/ISSUE_TEMPLATE/bug_report.yml)** — includes structured fields for component, version, reproduction steps, and environment.
 
-Found a technical error, ambiguity, or gap in the specification?
+### ✨ Request a Feature
+Use the **[Feature Request template](.github/ISSUE_TEMPLATE/feature_request.yml)** — describes the problem, proposed solution, alternatives, and priority.
 
-- Go to the [Issues tab](https://github.com/bxpprotocol/bxp-spec/issues)
-- Click **New Issue**
-- Use a clear title: `[SPEC] Section 5.2 — binary header offset error`
-- Describe the problem and your suggested correction
-- Reference the specific section number
+### 📋 Propose a Specification Change (RFC)
+Use the **[RFC Proposal template](.github/ISSUE_TEMPLATE/rfc_proposal.yml)** — formal 30-day public comment process per SPEC.md §12.3. All spec changes require RFC.
 
-Issue labels:
-- `spec-error` — factual or technical error in specification
-- `spec-ambiguity` — unclear or ambiguous language
-- `spec-gap` — missing information that should be covered
-- `enhancement` — suggested improvement or addition
-- `question` — request for clarification
+### 🔧 Submit Code
+1. Fork → branch → changes → PR
+2. Fill the **[PR Template](.github/PULL_REQUEST_TEMPLATE.md)** completely
+3. Ensure `make check` passes locally
+4. Reference related issue(s)
 
-### 2. Submit an RFC
-
-Want to propose a new feature, extension, or breaking change?
-
-BXP uses a formal RFC (Request for Comments) process for all
-specification changes — modeled on the IETF RFC process.
-
-**RFC Template:**
-```
-RFC Title: [Short descriptive title]
-Author: [Your name or handle]
-Date: [Submission date]
-Status: Draft
-Category: [Core / Extension / Process]
-
-## Summary
-One paragraph describing what this RFC proposes.
-
-## Motivation
-Why is this change needed? What problem does it solve?
-
-## Specification
-Technical details of the proposed change.
-
-## Backward Compatibility
-Does this break existing BXP implementations? How?
-
-## Alternatives Considered
-What other approaches were considered and why this was chosen.
-
-## Open Questions
-Any unresolved questions the community should discuss.
-```
-
-Submit RFCs as GitHub Issues with the label `rfc`.
-
-### 3. Build a Reference Implementation
-
-The most impactful contribution is a working implementation.
-
-**Priority implementations needed:**
-
-| Implementation | Language | Status |
-|----------------|----------|--------|
-| bxp-server | Python 3.11+ | Needed |
-| bxp-server-node | Node.js 20+ | Needed |
-| bxp-sdk-python | Python 3.11+ | Needed |
-| bxp-sdk-js | JavaScript/TypeScript | Needed |
-| bxp-sdk-arduino | C/C++ Arduino | Needed |
-| bxp-sdk-esp32 | C/C++ ESP-IDF | Needed |
-| bxp-mobile | React Native | Needed |
-
-If you are building one of these — open an issue first with label
-`implementation` so we can coordinate and avoid duplication.
-
-All reference implementations must:
-- Implement the full BXP v2.0 specification
-- Include a test suite with >80% coverage
-- Include clear documentation and usage examples
-- Be licensed under Apache 2.0
-- Pass BXP conformance tests when available
-
-### 4. Submit a Pull Request
-
-For documentation improvements, example additions, or minor
-specification clarifications:
-
-1. Fork the repository
-2. Create a branch: `git checkout -b fix/section-5-clarification`
-3. Make your changes
-4. Commit with a clear message: `Fix ambiguous wording in Section 5.2`
-5. Push and open a Pull Request
-6. Fill in the PR template completely
-
-**Pull Request requirements:**
-- Reference the related issue number
-- Explain what changed and why
-- For specification changes — include before and after text
-- For code changes — include test results
+**Code standards:**
+- Python: `ruff` (line-length 100, py39 target)
+- TypeScript: `tsc --noEmit` + project style
+- Tests required for new functionality
+- Conformance vectors updated for wire format changes
 
 ---
 
-## Contribution Standards
+## High-Impact Contributions Needed
 
-### Language & Tone
-- Use clear, precise technical language
-- Follow RFC 2119 keyword conventions (MUST, SHOULD, MAY)
-- Write for an international audience — avoid idioms and slang
-- Be specific — vague suggestions are hard to act on
+| Area | Description | Effort |
+|------|-------------|--------|
+| **Embedded C/ESP32/Arduino codec** | Native binary `.bxp` encoder/decoder for microcontrollers | High |
+| **PurpleAir importer** | Real-time import from PurpleAir API → valid BXP records | Medium |
+| **Rust SDK** | Independent implementation for conformance validation | High |
+| **Mobile SDKs** | React Native, Flutter, Kotlin/Swift | High |
+| **Load testing** | Reference server benchmarking, optimization | Medium |
+| **Documentation translations** | ES, FR, ZH, AR, HI, PT, SW, etc. | Low-Medium |
+
+See [Roadmap](README.md#roadmap) for full list.
+
+---
+
+## RFC Process (Specification Changes)
+
+All specification changes follow the formal RFC process:
+
+1. **Open RFC Issue** using the template with `rfc` label
+2. **30-day public comment** — community discusses
+3. **Maintainer decision** — accept, reject, or request revision
+4. **Implementation** — accepted RFCs → next appropriate version
+5. **Conformance update** — new test vectors for wire format changes
+
+See [SPEC.md §12.3](SPEC.md#123-rfc-process) and [GOVERNANCE.md](GOVERNANCE.md#rfc-process-documented-not-yet-used) for full details.
+
+---
+
+## Development Guidelines
 
 ### Specification Changes
-- Every change must have a clear rationale
-- Breaking changes require overwhelming justification
-- New fields are OPTIONAL by default unless there is strong reason
-- All new agents must include WHO or equivalent threshold data
-- Backward compatibility is a first-class requirement
+- Use RFC 2119 keywords (MUST, SHOULD, MAY, MUST NOT)
+- New fields are OPTIONAL by default (SPEC §5.7 extensibility)
+- Breaking changes require MAJOR version, 18-month notice, dual-version support
+- All new agents need WHO/equivalent threshold data
 
-### Code Contributions
-- Follow the language's standard style guide
-- Include comments explaining non-obvious decisions
-- Write tests for all new functionality
-- Document public APIs completely
+### Code Quality
+| Language | Linter | Test Command |
+|----------|--------|--------------|
+| Python | `ruff check .` | `python -m pytest` |
+| TypeScript | `tsc --noEmit` | `npm test` (in sdk/typescript) |
+| Conformance | — | `python conformance/verify_python.py && node conformance/verify_typescript.mjs` |
+
+### Commit Messages
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+```
+feat(sdk): add PurpleAir importer module
+fix(server): handle NaN in JSON payloads
+docs(readme): update quick start with Docker
+rfc(spec): add NOX composite agent (RFC-001)
+```
 
 ---
 
 ## Review Process
 
-1. All contributions are reviewed by the Technical Steering Committee
-2. Significant changes go through 30-day public comment period
-3. TSC votes: accept, request changes, or decline with explanation
-4. Accepted changes are incorporated in the next appropriate release
-5. Contributors are credited in the release changelog
-
-Review timeline:
-- Bug fixes and clarifications: 7 days
-- New optional features: 30 days
-- Breaking changes: 90 days minimum
+| Change Type | Review Timeline | Reviewers |
+|-------------|-----------------|-----------|
+| Bug fixes, docs, clarifications | 7 days | Maintainer |
+| New optional features (MINOR) | 30 days | Maintainer + community |
+| Breaking changes (MAJOR) | 90 days minimum | Maintainer + RFC process |
+| Security fixes | Immediate (private) | Maintainer (see SECURITY.md) |
 
 ---
 
 ## Community Standards
 
-BXP is built on the principle that clean air is a human right —
-not a privilege of geography or wealth. This community reflects
-that principle.
+BXP is built on the principle that **clean air is a human right** — not a privilege of geography or wealth. Our community reflects that principle.
 
-We expect all contributors to:
+**We expect all contributors to:**
 - Treat everyone with respect regardless of background or experience
 - Give and receive feedback constructively
-- Prioritize the public good over personal or commercial interests
+- Prioritize public good over personal/commercial interests
 - Be honest about limitations, uncertainties, and trade-offs
 - Credit others for their ideas and work
 
-Behavior that will not be tolerated:
+**Unacceptable behavior:**
 - Harassment or discrimination of any kind
 - Bad-faith contributions designed to harm the project
-- Attempts to introduce proprietary dependencies or lock-in
+- Attempts to introduce proprietary dependencies or vendor lock-in
 - Misrepresentation of the specification for commercial advantage
 
 ---
 
 ## Recognition
 
-Every contributor is recognized in the project:
-
+Every contributor is recognized:
 - **CHANGELOG.md** — significant contributions credited by name
-- **Contributors list** — all contributors listed in the repository
-- **RFC authorship** — RFCs permanently attributed to their authors
-- **Implementation credits** — reference implementations credited
-  to their builders
-
-The people who help build BXP are building infrastructure that
-will protect lives at planetary scale. That matters.
+- **GitHub Contributors** — all contributors listed in repo insights
+- **RFC authorship** — RFCs permanently attributed to authors
+- **Implementation credits** — reference implementations credited to builders
 
 ---
 
 ## Getting Help
 
-- **GitHub Issues** — for specific questions about the specification
-- **GitHub Discussions** — for open-ended conversation and ideas
-- **Email** — bxpprotocol@proton.me for partnership and 
-  institutional inquiries
+| Channel | Purpose |
+|---------|---------|
+| [GitHub Issues](https://github.com/bxpprotocol/bxp-spec/issues) | Specific technical questions, bugs, features |
+| [GitHub Discussions](https://github.com/bxpprotocol/bxp-spec/discussions) | Open-ended conversation, ideas, Q&A |
+| [Email](mailto:bxpprotocol@proton.me) | Partnership, institutional, security inquiries |
 
 ---
 
 ## First Time Contributing?
 
-Not sure where to start? Look for issues labeled `good first issue`.
-These are specifically chosen for new contributors — meaningful
-but well-scoped tasks that don't require deep BXP expertise.
-
-The best first contribution is always reading SPEC.md carefully
-and opening an issue for anything that is unclear. Fresh eyes
-catch things that experienced contributors miss.
+1. **Read SPEC.md** — the best first contribution is opening an issue for anything unclear
+2. **Look for `good first issue` label** — scoped tasks for new contributors
+3. **Run the validator** — try `docs/validator.html` in your browser
+4. **Join Discussions** — introduce yourself and ask questions
 
 ---
 
-*BXP is built by people who believe the air is public*
-*and the data about it should be too.*
+*BXP is built by people who believe the air is public and the data about it should be too.*
 
-*Copyright 2026 Elvarin — Apache 2.0 License*
-```
+**Copyright 2026 BXP Protocol Contributors — Apache 2.0 License**

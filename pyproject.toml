@@ -1,0 +1,126 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bxp-sdk"
+version = "2.1.0"
+description = "BXP (Breathe Exposure Protocol) Python SDK — Universal atmospheric exposure data interoperability"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "BXP Protocol Contributors", email = "bxpprotocol@proton.me"}
+]
+maintainers = [
+    {name = "Elvarin", email = "bxpprotocol@proton.me"}
+]
+keywords = [
+    "air-quality",
+    "atmospheric-exposure",
+    "environmental-data",
+    "data-interoperability",
+    "open-standard",
+    "health-risk-index",
+    "federated-network",
+    "protocol",
+    "sensor-data",
+    "pm25",
+    "environmental-monitoring",
+    "public-health"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+]
+urls = {
+    "Homepage" = "https://bxpprotocol.github.io/bxp-spec/",
+    "Repository" = "https://github.com/bxpprotocol/bxp-spec",
+    "Documentation" = "https://bxpprotocol.github.io/bxp-spec/docs/",
+    "Changelog" = "https://github.com/bxpprotocol/bxp-spec/blob/main/CHANGELOG.md",
+    "Issues" = "https://github.com/bxpprotocol/bxp-spec/issues",
+    "Discussions" = "https://github.com/bxpprotocol/bxp-spec/discussions",
+    "Spec DOI" = "https://doi.org/10.5281/zenodo.18906812",
+    "Impl DOI" = "https://doi.org/10.5281/zenodo.18907003",
+}
+dependencies = [
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+]
+optional-dependencies = {
+    async = ["httpx>=0.25.0"],
+    dev = [
+        "pytest>=7.4.0",
+        "pytest-cov>=4.1.0",
+        "ruff>=0.1.0",
+        "pip-audit>=2.6.0",
+        "build>=1.0.0",
+        "twine>=4.0.0",
+    ],
+    docs = [
+        "mkdocs>=1.5.0",
+        "mkdocs-material>=9.0.0",
+        "mkdocstrings[python]>=0.24.0",
+    ],
+}
+
+[project.scripts]
+bxp = "cli.bxp_cli:main"
+bxp-validate = "cli.bxp_cli:validate_cmd"
+bxp-hri = "cli.bxp_cli:hri_cmd"
+bxp-generate = "cli.bxp_cli:generate_cmd"
+bxp-submit = "cli.bxp_cli:submit_cmd"
+bxp-map = "cli.bxp_cli:map_cmd"
+bxp-export = "cli.bxp_cli:export_cmd"
+bxp-batch = "cli.bxp_cli:batch_submit_cmd"
+
+[tool.setuptools.packages.find]
+where = ["sdk/python"]
+include = ["bxp_sdk*"]
+
+[tool.setuptools.package-dir]
+"bxp_sdk" = "sdk/python"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "T20", "W", "N", "D", "TRY", "PD", "PG", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SLOT", "T10", "TCH", "INT", "ARG", "PTH", "ERA", "PL", "TRY", "NPY"]
+ignore = ["S608", "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107", "ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204"]
+exclude = ["conformance/vectors/", ".git/", "__pycache__/", "build/", "dist/", "*.egg-info/"]
+
+[tool.ruff.per-file-ignores]
+"reference-server/database.py" = ["S608"]
+
+[tool.pytest.ini_options]
+testpaths = ["reference-server/tests", "sdk/python/tests", "integrations"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+
+[tool.coverage.run]
+source = ["sdk/python", "reference-server", "cli", "integrations"]
+omit = ["*/tests/*", "*/conformance/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:"
+]
