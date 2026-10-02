@@ -153,7 +153,7 @@ Every contributor is recognized:
 
 1. **Read SPEC.md** — the best first contribution is opening an issue for anything unclear
 2. **Look for `good first issue` label** — scoped tasks for new contributors
-3. **Run the validator** — try `docs/validator.html` in your browser
+3. **Run the validator** — try https://bxpprotocol.github.io/bxp-spec/validator.html in your browser
 4. **Join Discussions** — introduce yourself and ask questions
 
 ---

@@ -91,11 +91,9 @@ bxp-protocol/
 │   └── openaq_import.py             OpenAQ v3 API → BXP importer
 ├── datasets/sample_readings.bxp.json  10 global city readings
 ├── docs/
-│   ├── api_documentation.md
-│   ├── developer_guide.md
-│   ├── protocol_overview.md
-│   ├── index.html                   Landing page (GitHub Pages)
-│   └── validator.html               BXP JSON validator & playground
+│   ├── api_documentation.md           REST API reference
+│   ├── developer_guide.md             Developer guide
+│   └── protocol_overview.md           Protocol overview
 ├── postman/BXP_Protocol.postman_collection.json
 ├── assets/                          README/site imagery
 ├── Dockerfile
