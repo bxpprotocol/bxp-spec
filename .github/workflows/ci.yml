@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   release:
     types: [published]
 
@@ -12,39 +12,42 @@ env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint (Python)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install ruff
-        run: pip install ruff
-      - name: Run ruff
-        run: ruff check .
+      - run: pip install ruff
+      - run: ruff check .
 
   test-python:
     name: Test (Python)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
         run: |
           pip install -r reference-server/requirements.txt
-          pip install -r requirements-dev.txt 2>/dev/null || pip install pytest pytest-cov
-      - name: Run server tests
+          pip install -r requirements-dev.txt
+      - name: Reference server tests
         run: python -m pytest reference-server/tests/ -v --tb=short
-      - name: Run SDK tests
+      - name: SDK tests
         run: python -m pytest sdk/python/tests/ -v --tb=short
-      - name: Run integration tests
+      - name: Integration tests
         run: python -m pytest integrations/ -v --tb=short
 
   test-typescript:
@@ -52,179 +55,190 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install dependencies
-        run: |
-          cd sdk/typescript && npm ci
-      - name: Run tests
-        run: |
-          cd sdk/typescript && npm test
+      - name: Install
+        run: cd sdk/typescript && npm ci
+      - name: Typecheck
+        run: cd sdk/typescript && npm run typecheck
+      - name: Test
+        run: cd sdk/typescript && npm test
 
   conformance:
-    name: Conformance Tests
+    name: Conformance vectors
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Run Python conformance
-        run: |
-          cd conformance && python verify_python.py
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install TypeScript dependencies
-        run: |
-          cd sdk/typescript && npm ci
-      - name: Run TypeScript conformance
-        run: |
-          cd conformance && node verify_typescript.mjs
+      - run: cd sdk/typescript && npm ci
+      - name: Python implementation
+        run: python conformance/verify_python.py
+      - name: TypeScript implementation
+        run: node conformance/verify_typescript.mjs
 
-  security:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install pip-audit
-        run: pip install pip-audit
-      - name: Audit Python dependencies
-        run: pip-audit -r reference-server/requirements.txt --desc on
-      - name: Audit Node dependencies
-        run: |
-          cd sdk/typescript && npm audit --audit-level=high
-
-  build-docs:
-    name: Build Docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate HTML
-        run: |
-          # Check for basic HTML validity
-          grep -q "<!DOCTYPE html>" docs/index.html
-          grep -q "<html" docs/index.html
-          grep -q "</html>" docs/index.html
-      - name: Check links (basic)
-        run: |
-          # Check internal links exist
-          grep -oP 'href="[^"#]+"' docs/index.html | sed 's/href="//;s/"//' | while read link; do
-            if [[ "$link" == /* ]]; then
-              if [ ! -f "docs${link}" ] && [ ! -d "docs${link}" ]; then
-                echo "Broken internal link: $link"
-                exit 1
-              fi
-            fi
-          done
-
-validate-spec:
-    name: Validate Spec & Docs
+  docs:
+    name: Docs integrity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Spec header and section structure
+
+      - name: Specification states its own stability and version
         run: |
           head -1 SPEC.md | grep -q "^# BXP Technical Specification"
+          grep -q "Status" SPEC.md
           grep -q "Stable" SPEC.md
-          grep -q "17 conformance vectors" SPEC.md
-      - name: Conformance vectors present
+          grep -q "experimental" SPEC.md
+
+      - name: Conformance vector count
         run: |
           COUNT=$(ls conformance/vectors/*.bxp | wc -l)
           echo "vectors: $COUNT"
           test "$COUNT" -eq 17
-      - name: Documentation integrity (fences, versions, HRI labelling)
+
+      - name: Fence balance, version agreement, HRI labelling
         run: python scripts/check_docs.py
+
       - name: Internal anchor links resolve
         run: |
-          python scripts/check_anchors.py SPEC.md README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md \
-            docs/api_documentation.md docs/developer_guide.md
+          python scripts/check_anchors.py SPEC.md README.md CHANGELOG.md \
+            CONTRIBUTING.md SECURITY.md docs/api_documentation.md \
+            docs/developer_guide.md
+
       - name: Table of contents is current
         run: python scripts/build_spec_toc.py --check
-      - name: OpenAPI contract is current
+
+      - name: Sample dataset validates against the SDK validator
         run: |
+          pip install -r reference-server/requirements.txt
+          pip install -r requirements-dev.txt
+          python scripts/check_dataset.py
+
+      - name: Committed OpenAPI contract matches the server
+        run: |
+          pip install -r reference-server/requirements.txt
           python scripts/export_openapi.py
           git diff --exit-code -- openapi.json openapi.yaml
-      - name: Reference pages generate cleanly
+
+  artefacts:
+    name: Published artefacts generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Every published artefact builds
         run: |
           python scripts/build_reference_pages.py --out /tmp/pages
-          for f in spec.html api.html agents.html versions.html; do
-            test -s /tmp/pages/$f || { echo "empty output: $f"; exit 1; }
-          done
-          grep -q "id=\"1-abstract\"" /tmp/pages/spec.html
-          grep -q "/bxp/v2/nearby" /tmp/pages/api.html
-          grep -q "PM2_5" /tmp/pages/agents.html
-          grep -q "zenodo" /tmp/pages/versions.html
-          echo "reference pages verified"
+          python scripts/build_site_artifacts.py --out /tmp/site
+          python scripts/build_feed.py --out /tmp/feed
+          python scripts/build_data_page.py --out /tmp/data
+      - name: Assert the artefacts are non-trivial
+        run: |
+          test -s /tmp/site/llms-full.txt
+          test -s /tmp/site/openapi.json
+          test -s /tmp/site/sample_readings.bxp.json
+          test -s /tmp/site/.nojekyll
+          test -s /tmp/feed/feed.xml
+          test -s /tmp/data/data.html
+          for f in spec api agents versions; do test -s /tmp/pages/$f.html; done
+      - name: Assert the contract is complete
+        run: |
+          python -c "
+          import json
+          spec = json.load(open('/tmp/site/openapi.json'))
+          paths = spec['paths']
+          assert len(paths) >= 20, sorted(paths)
+          for required in ('/bxp/v2/readings', '/bxp/v2/nearby', '/bxp/v2/sync'):
+              assert required in paths, required
+          print(len(paths), 'paths verified')
+          "
 
-  release:
-    name: Release
+  security:
+    name: Dependency audit
     runs-on: ubuntu-latest
-    needs: [lint, test-python, test-typescript, conformance, security, build-docs, validate-spec]
-    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: pip install pip-audit
+      - run: cd sdk/typescript && npm ci
+      - name: Python advisories
+        run: pip-audit -r reference-server/requirements.txt --desc on
+      - name: Node advisories
+        run: cd sdk/typescript && npm audit --audit-level=high
+
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    needs: [lint, test-python, test-typescript, conformance, docs, artefacts, security]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build the Python wheel
+        run: |
+          pip install -r reference-server/requirements.txt
+          pip install build
+          python -m build
+      - name: Verify the wheel installs and imports
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          /tmp/venv/bin/python -c "import bxp_sdk; print('sdk imports ok')"
+      - name: Upload distribution artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to registries
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
-      - name: Build Python package
-        run: |
-          pip install build twine
-          python -m build
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
-      - name: Build and publish npm package
         run: |
-          cd sdk/typescript
-          npm publish --access public
+          pip install twine
+          twine upload dist/*
+      - name: Publish to npm
+        run: cd sdk/typescript && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Create GitHub Release artifacts
-        run: |
-          # Release artifacts already created by build step
-          echo "Release published successfully"
-
-  deploy-pages:
-    name: Deploy to GitHub Pages
-    runs-on: ubuntu-latest
-    needs: [build-docs]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      pages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

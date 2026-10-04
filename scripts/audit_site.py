@@ -64,7 +64,16 @@ NEEDED = [
 
 for page in pages:
     text = page.read_text(encoding="utf-8", errors="replace")
-    missing = [name for name, pat in NEEDED if not re.search(pat, text)]
+    # A noindex page (an error page) is excluded from indexing, so Open Graph
+    # metadata on it serves no purpose and an inbound link is not expected.
+    noindex = "noindex" in text
+    missing = [
+        name
+        for name, pat in NEEDED
+        if not re.search(pat, text)
+        # Social previews are only worth having on pages that can be shared.
+        and not (noindex and name.startswith("og:"))
+    ]
     if missing:
         problems.append(f"{page.name}: missing {', '.join(missing)}")
 
@@ -106,7 +115,9 @@ for m in re.finditer(r'href="([^"#]+)"', idx):
         linked_from_index.add(t)
 
 for page in pages:
-    if page.name == "index.html":
+    # index.html is the entry point, and 404.html is reached by a failed request
+    # rather than by navigation, so neither needs an inbound link.
+    if page.name in ("index.html", "404.html"):
         continue
     if page.name not in linked_from_index:
         problems.append(f"{page.name}: not linked from index.html (orphaned)")

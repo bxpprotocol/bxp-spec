@@ -1,7 +1,8 @@
 # Developer shortcuts. `make check` runs everything CI runs (except Docker).
 .PHONY: install lint test conformance typecheck check run security docs build clean \
         release-dry ci-local generate-vectors openapi openapi-check citation-check \
-        validate-spec docs-guard pages pages-check feed site-audit version-bump help
+        validate-spec docs-guard check-dataset pages pages-check feed data-page \
+        site-artifacts site site-audit version-bump help
 
 # Where the published website lives, for `make pages`.
 PAGES_OUT ?= ../bxpprotocol.github.io
@@ -89,6 +90,9 @@ openapi-check:      ## Fail if the committed OpenAPI contract is stale
 citation-check:     ## Validate CITATION.cff and the version references agree
 	@$(PYTHON) scripts/check_docs.py
 
+check-dataset:      ## Validate the published sample dataset against the SDK validator
+	@$(PYTHON) scripts/check_dataset.py
+
 validate-spec:      ## Validate SPEC.md structure, TOC, and internal anchors
 	@grep -q "^# BXP Technical Specification" SPEC.md
 	@$(PYTHON) scripts/build_spec_toc.py --check
@@ -110,6 +114,20 @@ pages-check:        ## Fail if the website reference pages are stale
 
 feed:               ## Regenerate the release Atom feed
 	@$(PYTHON) scripts/build_feed.py --out $(PAGES_OUT)
+
+data-page:          ## Regenerate the sample-dataset page
+	@$(PYTHON) scripts/build_data_page.py --out $(PAGES_OUT)
+
+site-artifacts:     ## Copy openapi, dataset, postman, llms-full, .nojekyll to the site
+	@$(PYTHON) scripts/build_site_artifacts.py --out $(PAGES_OUT)
+
+site:               ## Regenerate everything published to the website
+	@$(MAKE) pages
+	@$(MAKE) data-page
+	@$(MAKE) feed
+	@$(MAKE) site-artifacts
+	@echo ""
+	@echo "Website regenerated. Run 'make site-audit' before committing."
 
 site-audit:         ## Check published site for dead links and missing metadata
 	@$(PYTHON) scripts/audit_site.py
