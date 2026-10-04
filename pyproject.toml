@@ -7,8 +7,9 @@ name = "bxp-sdk"
 version = "2.1.0"
 description = "BXP (Breathe Exposure Protocol) Python SDK — Universal atmospheric exposure data interoperability"
 readme = "README.md"
-requires-python = ">=3.9"
-license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     {name = "BXP Protocol Contributors", email = "bxpprotocol@proton.me"}
 ]
@@ -34,10 +35,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Healthcare Industry",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -79,21 +78,24 @@ optional-dependencies = {
 }
 
 [project.scripts]
-bxp = "cli.bxp_cli:main"
-bxp-validate = "cli.bxp_cli:validate_cmd"
-bxp-hri = "cli.bxp_cli:hri_cmd"
-bxp-generate = "cli.bxp_cli:generate_cmd"
-bxp-submit = "cli.bxp_cli:submit_cmd"
-bxp-map = "cli.bxp_cli:map_cmd"
-bxp-export = "cli.bxp_cli:export_cmd"
-bxp-batch = "cli.bxp_cli:batch_submit_cmd"
+bxp = "bxp_cli:main"
+bxp-validate = "bxp_cli:validate_cmd"
+bxp-hri = "bxp_cli:hri_cmd"
+bxp-generate = "bxp_cli:generate_cmd"
+bxp-submit = "bxp_cli:submit_cmd"
+bxp-map = "bxp_cli:map_cmd"
+bxp-export = "bxp_cli:export_cmd"
+bxp-batch = "bxp_cli:batch_submit_cmd"
 
-[tool.setuptools.packages.find]
-where = ["sdk/python"]
-include = ["bxp_sdk*"]
+# bxp_sdk, bxp_binary and bxp_cli are single-file modules, not packages.
+# `packages.find` would locate nothing here, which is why the published wheel
+# previously contained metadata only and every `pip install` produced an
+# unimportable distribution.
+[tool.setuptools]
+py-modules = ["bxp_sdk", "bxp_binary", "bxp_cli"]
 
 [tool.setuptools.package-dir]
-"bxp_sdk" = "sdk/python"
+"" = "sdk/python"
 
 [tool.ruff]
 line-length = 100

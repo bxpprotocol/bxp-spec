@@ -54,6 +54,32 @@ Use the **[RFC Proposal template](.github/ISSUE_TEMPLATE/rfc_proposal.yml)** —
 | **Mobile SDKs** | React Native, Flutter, Kotlin/Swift | High |
 | **Load testing** | Reference server benchmarking, optimization | Medium |
 | **Documentation translations** | ES, FR, ZH, AR, HI, PT, SW, etc. | Low-Medium |
+| **Third-party citations** | Cite BXP in a paper, thesis, or standards review you are writing | Low |
+| **Independent integrations** | Publish a BXP importer/exporter for a platform we do not cover | Medium |
+
+### Adoption help we can give you
+
+If you are integrating BXP and want the result to be visible to people who
+search for air-quality data, three things help more than almost anything else
+you could do:
+
+1. **Publish what you build.** A package, a dashboard, or a bridge that depends
+   on `bxp-sdk` puts BXP into dependency graphs, registries, and search indexes
+   that no amount of self-promotion reaches.
+2. **Pin the version and cite the DOI.** `doi:10.5281/zenodo.18906812` is
+   indexed by DataCite, OpenAIRE, OpenAlex, and Google Scholar. See
+   [versions and citation](https://bxpprotocol.github.io/versions.html).
+3. **Say where it is used.** Open an issue or a discussion. Discoverability for
+   a young standard comes from being referenced by projects that already exist,
+   not from the standard's own site.
+
+### Already prepared for you
+
+- [`docs/WIKIDATA.md`](docs/WIKIDATA.md) — a complete, fully referenced Wikidata
+  entity submission for BXP, ready to paste
+- [`RELEASING.md`](RELEASING.md) — how to publish the SDKs and container image
+- [`scripts/verify_packages.py`](scripts/verify_packages.py) — proves a built
+  package actually installs and imports before you publish it
 
 See [Roadmap](README.md#roadmap) for full list.
 

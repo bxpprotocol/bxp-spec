@@ -44,6 +44,10 @@ docs:               ## Validate docs (HTML structure, internal links)
 	@test -f docs/robots.txt && echo "✓ robots.txt exists"
 	@test -f docs/manifest.json && echo "✓ manifest.json exists"
 
+
+verify-packages:    ## Build, install and import both distributions as a consumer would
+	@\ scripts/verify_packages.py
+
 check: lint typecheck test conformance   ## Everything CI checks (pre-PR)
 
 run:                ## Start the reference node on :5000

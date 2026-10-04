@@ -121,7 +121,7 @@ docker compose up
 
 ```bash
 # Install SDK
-pip install bxp-sdk  # coming in v2.1
+pip install bxp-sdk
 
 # Or run from source
 pip install -r reference-server/requirements.txt
@@ -135,7 +135,7 @@ cd reference-server && python server.py
 
 ```bash
 # Install SDK
-npm install @bxp/sdk  # coming in v2.1
+npm install @bxp/sdk
 ```
 
 </details>
