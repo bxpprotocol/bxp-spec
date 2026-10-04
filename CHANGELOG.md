@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+_Nothing yet. The next release will appear here._
+
+---
+
+## [2.1.0] — 2026-10-03
 ### Reference node hardening (checkpoint 07)
 
 Breaking: `GET /bxp/v2/sync` now takes `since` and returns `nextCursor`
@@ -479,4 +484,3 @@ original public record of BXP's creation.
 
 *Copyright 2026 Elvarin — Apache 2.0 License*
 *The air is public. The data should be too.*
-```

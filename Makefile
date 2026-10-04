@@ -1,5 +1,10 @@
 # Developer shortcuts. `make check` runs everything CI runs (except Docker).
-.PHONY: install lint test conformance typecheck check run security docs build clean release
+.PHONY: install lint test conformance typecheck check run security docs build clean \
+        release-dry ci-local generate-vectors openapi openapi-check citation-check \
+        validate-spec docs-guard pages pages-check feed site-audit version-bump help
+
+# Where the published website lives, for `make pages`.
+PAGES_OUT ?= ../bxpprotocol.github.io
 
 # Python & Node versions
 PYTHON := python3
@@ -61,16 +66,53 @@ ci-local:           ## Run CI steps locally (mirrors .github/workflows/ci.yml)
 	@$(MAKE) test
 	@$(MAKE) conformance
 	@$(MAKE) security
-	@$(MAKE) docs
+	@$(MAKE) docs-guard
+	@$(MAKE) validate-spec
+	@$(MAKE) openapi-check
 	@$(MAKE) build
+	@echo ""
+	@echo "ci-local complete. Also run 'make pages && make feed && make site-audit'"
+	@echo "to refresh and verify the website, then push bxp-spec and bxpprotocol.github.io."
 
 generate-vectors:   ## Regenerate conformance golden vectors
 	$(PYTHON) conformance/generate_vectors.py
 
-validate-spec:      ## Validate SPEC.md structure
-	@grep -q "^# BXP" SPEC.md
-	@for i in $$(seq 1 20); do grep -q "^## $$i\." SPEC.md || (echo "Missing section $$i" && exit 1); done
+openapi:            ## Regenerate the committed OpenAPI contract
+	$(PYTHON) scripts/export_openapi.py
+
+openapi-check:      ## Fail if the committed OpenAPI contract is stale
+	@$(PYTHON) scripts/export_openapi.py >/dev/null
+	@git diff --quiet -- openapi.json openapi.yaml \
+		&& echo "openapi contract up to date" \
+		|| (echo "openapi.json/openapi.yaml are stale - run 'make openapi' and commit" && exit 1)
+
+citation-check:     ## Validate CITATION.cff and the version references agree
+	@$(PYTHON) scripts/check_docs.py
+
+validate-spec:      ## Validate SPEC.md structure, TOC, and internal anchors
+	@grep -q "^# BXP Technical Specification" SPEC.md
+	@$(PYTHON) scripts/build_spec_toc.py --check
+	@$(PYTHON) scripts/check_anchors.py SPEC.md README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
 	@test $$(ls conformance/vectors/*.bxp | wc -l) -eq 17 && echo "✓ 17 conformance vectors"
+
+docs-guard:         ## Fence balance, version agreement, HRI labelling, anchors
+	@$(PYTHON) scripts/check_docs.py
+	@$(PYTHON) scripts/check_anchors.py SPEC.md README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md docs/api_documentation.md docs/developer_guide.md
+
+pages:              ## Regenerate the website reference pages from source
+	@$(PYTHON) scripts/build_reference_pages.py --out $(PAGES_OUT)
+
+pages-check:        ## Fail if the website reference pages are stale
+	@$(PYTHON) scripts/build_reference_pages.py --out $(PAGES_OUT) >/dev/null
+	@git diff --quiet -- '*.html' \
+		&& echo "reference pages up to date" \
+		|| (echo "reference pages are stale - run 'make pages' and commit" && exit 1)
+
+feed:               ## Regenerate the release Atom feed
+	@$(PYTHON) scripts/build_feed.py --out $(PAGES_OUT)
+
+site-audit:         ## Check published site for dead links and missing metadata
+	@$(PYTHON) scripts/audit_site.py
 
 version-bump:       ## Show current version from git tags
 	@git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0 (no tags)"

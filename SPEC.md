@@ -1,34 +1,46 @@
- BXP Technical Specification v2.0
+# BXP Technical Specification v2.0
 
 > **Breathe Exposure Protocol — Complete Technical Reference**
-> Status: Active | Version: 2.0 | License: Apache 2.0
+>
+> | | |
+> |---|---|
+> | **Status** | **Stable.** The v2.0 wire format is frozen. |
+> | **Version** | 2.0 |
+> | **Frozen in v2** | The 32-byte container framing, checksum placement, and agent ID registry. These will not change within major version 2. |
+> | **Still open in MINOR** | Optional fields, endpoints, and agents may be added. Implementations must ignore-and-preserve what they do not recognise (§5.7). |
+> | **Breaking changes** | Require a new major version, 18 months advance notice, and dual-version support (§12). |
+> | **License** | Apache 2.0 |
+> | **Conformance** | 17 golden vectors, §15 |
+>
+> **BXP-HRI (§13) is experimental.** It is not clinically or epidemiologically
+> validated and must not be used for medical decisions.
 
 ---
 
 ## Table of Contents
 
-1. [Abstract](#1-abstract)
-2. [Terminology](#2-terminology)
-3. [Design Philosophy](#3-design-philosophy)
-4. [File System Architecture](#4-file-system-architecture)
-5. [The .bxp File Format](#5-the-bxp-file-format)
-6. [Agent Schema](#6-agent-schema)
-7. [Source Classification](#68-source-classification)
-8. [Protocol Stages](#7-protocol-stages)
-9. [REST API Specification](#8-rest-api-specification)
-10. [Security & Privacy Framework](#9-security--privacy-framework)
-11. [Community Reporting Layer](#10-community-reporting-layer)
-12. [Implementation Guide](#11-implementation-guide)
-13. [Governance & Versioning](#12-governance--versioning)
-14. [BXP Health Risk Index](#13-bxp-health-risk-index)
-15. [Compatibility Matrix](#14-compatibility-matrix)
-16. [Conformance & Test Vectors](#15-conformance--test-vectors)
-17. [Appendix A — Agent Reference](#appendix-a--complete-agent-reference)
+1. [1. Abstract](#1-abstract)
+2. [2. Terminology](#2-terminology)
+3. [3. Design Philosophy](#3-design-philosophy)
+4. [4. Recommended Node Storage Layout (informative, non-normative)](#4-recommended-node-storage-layout-informative-non-normative)
+5. [5. The .bxp File Format](#5-the-bxp-file-format)
+6. [6. Agent Schema](#6-agent-schema)
+7. [6.8. Source Classification](#68-source-classification)
+8. [7. Protocol Stages](#7-protocol-stages)
+9. [8. REST API Specification](#8-rest-api-specification)
+10. [9. Security & Privacy Framework](#9-security--privacy-framework)
+11. [10. Community Reporting Layer](#10-community-reporting-layer)
+12. [11. Implementation Guide](#11-implementation-guide)
+13. [12. Governance & Versioning](#12-governance--versioning)
+14. [13. BXP-HRI (Experimental) — Health Risk Index](#13-bxp-hri-experimental--health-risk-index)
+15. [14. Compatibility Matrix](#14-compatibility-matrix)
+16. [15. Conformance & Test Vectors](#15-conformance--test-vectors)
+17. [Appendix A — Complete Agent Reference](#appendix-a--complete-agent-reference)
 18. [Appendix B — Geohash Reference](#appendix-b--geohash-reference)
 19. [Appendix C — Error Codes](#appendix-c--error-codes)
 20. [Appendix D — Glossary](#appendix-d--glossary)
-
----
+21. [Origin & Authorship](#origin--authorship)
+22. [References](#references)
 
 ## 1. Abstract
 
@@ -1626,5 +1638,3 @@ Guidelines. Geneva: World Health Organization.
 
 *Copyright 2026 Elvarin — Licensed under Apache 2.0*
 *The air is public. The data should be too.*
-```
-

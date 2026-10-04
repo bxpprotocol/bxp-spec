@@ -126,38 +126,50 @@ jobs:
             fi
           done
 
-  validate-spec:
-    name: Validate Spec
+validate-spec:
+    name: Validate Spec & Docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check SPEC.md structure
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Spec header and section structure
         run: |
-          # Verify key sections exist
-          grep -q "^# BXP" SPEC.md
-          grep -q "## 1\." SPEC.md
-          grep -q "## 2\." SPEC.md
-          grep -q "## 3\." SPEC.md
-          grep -q "## 4\." SPEC.md
-          grep -q "## 5\." SPEC.md
-          grep -q "## 6\." SPEC.md
-          grep -q "## 7\." SPEC.md
-          grep -q "## 8\." SPEC.md
-          grep -q "## 9\." SPEC.md
-          grep -q "## 10\." SPEC.md
-          grep -q "## 11\." SPEC.md
-          grep -q "## 12\." SPEC.md
-          grep -q "## 13\." SPEC.md
-          grep -q "## 14\." SPEC.md
-          grep -q "## 15\." SPEC.md
-          grep -q "## 16\." SPEC.md
-          grep -q "## 17\." SPEC.md
-          grep -q "## 18\." SPEC.md
-          grep -q "## 19\." SPEC.md
-          grep -q "## 20\." SPEC.md
-      - name: Check conformance vectors exist
+          head -1 SPEC.md | grep -q "^# BXP Technical Specification"
+          grep -q "Stable" SPEC.md
+          grep -q "17 conformance vectors" SPEC.md
+      - name: Conformance vectors present
         run: |
-          ls conformance/vectors/*.bxp | wc -l | grep -q "^17$"
+          COUNT=$(ls conformance/vectors/*.bxp | wc -l)
+          echo "vectors: $COUNT"
+          test "$COUNT" -eq 17
+      - name: Documentation integrity (fences, versions, HRI labelling)
+        run: python scripts/check_docs.py
+      - name: Internal anchor links resolve
+        run: |
+          python scripts/check_anchors.py SPEC.md README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md \
+            docs/api_documentation.md docs/developer_guide.md
+      - name: Table of contents is current
+        run: python scripts/build_spec_toc.py --check
+      - name: OpenAPI contract is current
+        run: |
+          python scripts/export_openapi.py
+          git diff --exit-code -- openapi.json openapi.yaml
+      - name: Reference pages generate cleanly
+        run: |
+          python scripts/build_reference_pages.py --out /tmp/pages
+          for f in spec.html api.html agents.html versions.html; do
+            test -s /tmp/pages/$f || { echo "empty output: $f"; exit 1; }
+          done
+          grep -q "id=\"1-abstract\"" /tmp/pages/spec.html
+          grep -q "/bxp/v2/nearby" /tmp/pages/api.html
+          grep -q "PM2_5" /tmp/pages/agents.html
+          grep -q "zenodo" /tmp/pages/versions.html
+          echo "reference pages verified"
 
   release:
     name: Release
