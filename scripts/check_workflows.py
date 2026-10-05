@@ -19,7 +19,6 @@ Exit code is non-zero on any violation, so CI can gate on it.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 import yaml
