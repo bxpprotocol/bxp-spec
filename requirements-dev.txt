@@ -4,3 +4,11 @@ pytest>=8.0
 pytest-asyncio>=0.23
 ruff>=0.6
 pip-audit>=2.7
+
+# Required by scripts/check_workflows.py, which validates the Actions workflow
+# files. Absent this, the docs CI job fails at import rather than at the check.
+PyYAML>=6.0
+
+# Required by scripts/verify_packages.py and the distribution build job.
+build>=1.0
+twine>=4.0

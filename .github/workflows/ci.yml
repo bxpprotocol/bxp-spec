@@ -9,8 +9,8 @@ on:
     types: [published]
 
 env:
-  PYTHON_VERSION: "3.11"
-  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"
 
 permissions:
   contents: read
@@ -152,7 +152,7 @@ jobs:
           test -s /tmp/site/llms-full.txt
           test -s /tmp/site/openapi.json
           test -s /tmp/site/sample_readings.bxp.json
-          test -s /tmp/site/.nojekyll
+          test -f /tmp/site/.nojekyll
           test -s /tmp/feed/feed.xml
           test -s /tmp/data/data.html
           for f in spec api agents versions; do test -s /tmp/pages/$f.html; done

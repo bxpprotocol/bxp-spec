@@ -161,7 +161,24 @@ def check(path: Path) -> None:
             if dep not in names:
                 fail(f"{rel}: job {name!r} needs unknown job {dep!r}")
 
-    # `needs: [build]` where the dep can never succeed blocks the release.
+    # The repo executes .ts files directly (npm test, and the conformance
+    # verifier imports bxp-binary.ts by path). That needs Node's TypeScript
+    # type-stripping, which is unflagged only from 22.18 onward. Running the
+    # suite on Node 20 fails in a way that looks like a test bug.
+    env = doc.get("env") or {}
+    node = str(env.get("NODE_VERSION", "")).strip('"').lstrip("v")
+    if node and node.isdigit() and int(node) < 22:
+        fail(
+            f"{rel}: NODE_VERSION is {node}, but the suite runs TypeScript "
+            f"files directly and needs Node >= 22.18 for type-stripping. "
+            f"Use 24."
+        )
+
+    # `concurrency` must be top level. Nested under a job it is silently ignored
+    # and in-flight runs are never cancelled.
+    if "concurrency" in doc.get("jobs", {}):
+        fail(f"{rel}: 'concurrency' is nested inside a job; it is only valid at top level")
+
     print(f"{rel}: ok")
 
 
