@@ -1,7 +1,7 @@
 # Developer shortcuts. `make check` runs everything CI runs (except Docker).
 .PHONY: install lint test conformance typecheck check run security docs build clean \
         release-dry ci-local generate-vectors openapi openapi-check citation-check \
-        validate-spec docs-guard check-workflows check-dataset pages pages-check feed data-page \
+        validate-spec docs-guard check-workflows check-pyproject check-dataset pages pages-check feed data-page \
         site-artifacts site site-audit version-bump help
 
 # Where the published website lives, for `make pages`.
@@ -93,6 +93,9 @@ openapi-check:      ## Fail if the committed OpenAPI contract is stale
 
 citation-check:     ## Validate CITATION.cff and the version references agree
 	@$(PYTHON) scripts/check_docs.py
+
+check-pyproject:    ## Validate pyproject.toml with a strict TOML parser and check packaging declarations
+	@\ scripts/check_pyproject.py
 
 check-workflows:    ## Validate GitHub Actions workflows against the rules GitHub enforces
 	@\ scripts/check_workflows.py

@@ -46,36 +46,41 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
 ]
-urls = {
-    "Homepage" = "https://bxpprotocol.github.io/bxp-spec/",
-    "Repository" = "https://github.com/bxpprotocol/bxp-spec",
-    "Documentation" = "https://bxpprotocol.github.io/bxp-spec/docs/",
-    "Changelog" = "https://github.com/bxpprotocol/bxp-spec/blob/main/CHANGELOG.md",
-    "Issues" = "https://github.com/bxpprotocol/bxp-spec/issues",
-    "Discussions" = "https://github.com/bxpprotocol/bxp-spec/discussions",
-    "Spec DOI" = "https://doi.org/10.5281/zenodo.18906812",
-    "Impl DOI" = "https://doi.org/10.5281/zenodo.18907003",
-}
 dependencies = [
     "requests>=2.31.0",
     "pydantic>=2.0.0",
 ]
-optional-dependencies = {
-    async = ["httpx>=0.25.0"],
-    dev = [
-        "pytest>=7.4.0",
-        "pytest-cov>=4.1.0",
-        "ruff>=0.1.0",
-        "pip-audit>=2.6.0",
-        "build>=1.0.0",
-        "twine>=4.0.0",
-    ],
-    docs = [
-        "mkdocs>=1.5.0",
-        "mkdocs-material>=9.0.0",
-        "mkdocstrings[python]>=0.24.0",
-    ],
-}
+
+# `urls` and `optional-dependencies` are sub-tables rather than inline tables.
+# TOML 1.0 forbids an inline table from spanning lines or ending in a trailing
+# comma. Python 3.10 has no tomllib and a lenient parser hid that, so the file
+# was invalid for years; from 3.11 the strict parser rejects it and pytest,
+# which reads this file as its config, cannot start.
+[project.urls]
+Homepage = "https://bxpprotocol.github.io/"
+Repository = "https://github.com/bxpprotocol/bxp-spec"
+Documentation = "https://bxpprotocol.github.io/"
+Changelog = "https://github.com/bxpprotocol/bxp-spec/blob/main/CHANGELOG.md"
+Issues = "https://github.com/bxpprotocol/bxp-spec/issues"
+Discussions = "https://github.com/bxpprotocol/bxp-spec/discussions"
+"Spec DOI" = "https://doi.org/10.5281/zenodo.18906812"
+"Impl DOI" = "https://doi.org/10.5281/zenodo.18907003"
+
+[project.optional-dependencies]
+async = ["httpx>=0.25.0"]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "pip-audit>=2.6.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.24.0",
+]
 
 [project.scripts]
 bxp = "bxp_cli:main"

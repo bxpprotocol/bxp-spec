@@ -93,6 +93,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install dependencies
+        run: |
+          pip install -r reference-server/requirements.txt
+          pip install -r requirements-dev.txt
+
       - name: Specification states its own stability and version
         run: |
           head -1 SPEC.md | grep -q "^# BXP Technical Specification"
@@ -121,15 +126,14 @@ jobs:
       - name: Workflow files are valid
         run: python scripts/check_workflows.py
 
+      - name: pyproject.toml is valid TOML and packaging is consistent
+        run: python scripts/check_pyproject.py
+
       - name: Sample dataset validates against the SDK validator
-        run: |
-          pip install -r reference-server/requirements.txt
-          pip install -r requirements-dev.txt
-          python scripts/check_dataset.py
+        run: python scripts/check_dataset.py
 
       - name: Committed OpenAPI contract matches the server
         run: |
-          pip install -r reference-server/requirements.txt
           python scripts/export_openapi.py
           git diff --exit-code -- openapi.json openapi.yaml
 
