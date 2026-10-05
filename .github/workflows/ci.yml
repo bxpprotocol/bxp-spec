@@ -3,10 +3,20 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   release:
     types: [published]
+  # Manual publication. The release event proved unreliable in practice on this
+  # repository: a correctly published release produced no run at all, leaving no
+  # way to publish without editing tags. This gives a direct path.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the package registries"
+        type: boolean
+        default: false
 
 env:
   PYTHON_VERSION: "3.12"
@@ -224,7 +234,10 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs: [build]
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: >-
+      (github.event_name == 'release' && github.event.action == 'published') ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -246,7 +259,10 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     needs: [build]
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: >-
+      (github.event_name == 'release' && github.event.action == 'published') ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish)
     # Independent of PyPI on purpose. A missing or expired NPM_TOKEN must not
     # block or confuse a successful Python release, and vice versa.
     #
