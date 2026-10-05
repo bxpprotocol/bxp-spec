@@ -131,12 +131,31 @@ cd reference-server && python server.py
 </details>
 
 <details>
-<summary><b>📦 Node.js (npm)</b></summary>
+<summary><b>📦 Node.js / TypeScript</b></summary>
+
+The TypeScript SDK is not on npm yet. It builds from the repository and is
+verified by the same conformance vectors as the Python SDK:
 
 ```bash
-# Install SDK
-npm install @bxp/sdk   # TypeScript SDK ships in this repository; npm publish pending
+git clone https://github.com/bxpprotocol/bxp-spec.git
+cd bxp-spec/sdk/typescript
+npm install
+npm run build      # emits dist/*.js and dist/*.d.ts
+npm test           # 20 tests
 ```
+
+Then import it directly:
+
+```ts
+import { calculateRisk, decodeBxpBinary } from "./dist/bxp-sdk.js";
+```
+
+`npm run conformance` additionally checks it against the 17 shared golden
+vectors, which is how byte-for-byte parity with the Python SDK is demonstrated.
+
+Once npm publishing is available the package name will be `@bxp/sdk` and the
+install will be a one-liner. The CI job is already configured and will activate
+without further changes.
 
 </details>
 
