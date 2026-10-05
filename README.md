@@ -135,7 +135,7 @@ cd reference-server && python server.py
 
 ```bash
 # Install SDK
-npm install @bxp/sdk
+npm install @bxp/sdk   # TypeScript SDK ships in this repository; npm publish pending
 ```
 
 </details>
