@@ -3,7 +3,7 @@
 # starlette is pinned explicitly (it is a transitive dependency of fastapi)
 # because older releases carry known CVEs and pip-audit should stay
 # deterministic. Dependabot keeps these current (.github/dependabot.yml).
-fastapi==0.141.1
+fastapi==0.142.2
 starlette==1.7.0
 uvicorn[standard]==0.54.0
 pydantic==2.13.5
