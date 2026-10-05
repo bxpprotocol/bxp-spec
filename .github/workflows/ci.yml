@@ -118,6 +118,9 @@ jobs:
       - name: Table of contents is current
         run: python scripts/build_spec_toc.py --check
 
+      - name: Workflow files are valid
+        run: python scripts/check_workflows.py
+
       - name: Sample dataset validates against the SDK validator
         run: |
           pip install -r reference-server/requirements.txt
@@ -239,25 +242,37 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     needs: [build]
+    if: github.event_name == 'release' && github.event.action == 'published'
     # Independent of PyPI on purpose. A missing or expired NPM_TOKEN must not
     # block or confuse a successful Python release, and vice versa.
-    if: >-
-      github.event_name == 'release' && github.event.action == 'published' &&
-      secrets.NPM_TOKEN != ''
+    #
+    # The `secrets` context is not available in a job-level `if`, which makes
+    # the whole workflow fail to parse. Job-level `env` may reference secrets,
+    # so the check happens at step level instead.
+    env:
+      NPM_TOKEN_PRESENT: ${{ secrets.NPM_TOKEN != '' }}
     steps:
+      - name: Report that npm publishing is not configured
+        if: env.NPM_TOKEN_PRESENT != 'true'
+        run: echo "NPM_TOKEN is not configured. Skipping the npm publish; PyPI is unaffected."
       - uses: actions/checkout@v4
+        if: env.NPM_TOKEN_PRESENT == 'true'
       - uses: actions/setup-python@v5
+        if: env.NPM_TOKEN_PRESENT == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: actions/setup-node@v4
+        if: env.NPM_TOKEN_PRESENT == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
       - name: Verify the tarball before uploading
+        if: env.NPM_TOKEN_PRESENT == 'true'
         run: |
           pip install -r reference-server/requirements.txt
           python scripts/verify_packages.py
       - name: Publish to npm
+        if: env.NPM_TOKEN_PRESENT == 'true'
         run: cd sdk/typescript && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
