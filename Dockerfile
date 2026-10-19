@@ -4,7 +4,7 @@
 ##   docker run -p 5000:5000 -v bxp_data:/data bxp-node
 ## Configuration: see .env.example (pass with --env-file .env).
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="BXP Protocol Reference Node"
 LABEL org.opencontainers.image.description="Open standard for atmospheric exposure data"
