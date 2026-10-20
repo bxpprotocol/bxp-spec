@@ -1,0 +1,46 @@
+{
+  "name": "bxp-spec",
+  "description": "Breathe Exposure Protocol - open atmospheric data standard",
+  "version": "2.0.0",
+  "agent": "kilo",
+  "defaultModel": "nvidia/nemotron-3.5-super-vl:free",
+  "defaultVariant": "normal",
+  "worktreeMode": "worktree",
+  "permissions": {
+    "fileRead": true,
+    "fileWrite": true,
+    "fileEdit": true,
+    "fileDelete": false,
+    "bash": true,
+    "webFetch": true,
+    "webSearch": true,
+    "gitCommit": false,
+    "gitPush": false
+  },
+  "paths": {
+    "spec": "SPEC.md",
+    "contributing": "CONTRIBUTING.md",
+    "governance": "GOVERNANCE.md",
+    "security": "SECURITY.md",
+    "codeOfConduct": "CODE_OF_CONDUCT.md",
+    "agents": "AGENTS.md",
+    "sdkPython": "sdk/python/",
+    "sdkTypeScript": "sdk/typescript/",
+    "conformance": "conformance/",
+    "referenceServer": "reference-server/",
+    "autonomousAgents": ".bxp/"
+  },
+  "workflows": {
+    "ci": ".github/workflows/ci.yml",
+    "sentinel": ".github/workflows/bxp-sentinel.yml",
+    "ingest": ".github/workflows/bxp-ingest.yml",
+    "scout": ".github/workflows/bxp-scout.yml"
+  },
+  "commands": {
+    "lint": "ruff check .",
+    "test": "python -m pytest reference-server/tests/ sdk/python/tests/ integrations/ -v",
+    "conformance": "python conformance/verify_python.py && node conformance/verify_typescript.mjs",
+    "check": "make check",
+    "run": "make run"
+  }
+}
