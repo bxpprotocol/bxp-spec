@@ -1,0 +1,46 @@
+name: BXP Public Data Ingestion
+
+on:
+  # Autonomous: runs every 6 hours to seed the network with fresh data.
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  ingest-public-feeds:
+    name: Ingest public air-quality feeds -> BXP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r .bxp/ingest-requirements.txt
+
+      - name: Run BXP Public Data Ingestion
+        run: python .bxp/ingest.py
+        env:
+          AIRNOW_API_KEY: ${{ secrets.AIRNOW_API_KEY }}
+          CAMS_API_KEY: ${{ secrets.CAMS_API_KEY }}
+
+      - name: Upload live dataset index
+        uses: actions/upload-artifact@v4
+        with:
+          name: bxp-live-index
+          path: datasets/live/index.json
+          retention-days: 30
