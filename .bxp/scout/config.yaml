@@ -1,0 +1,72 @@
+# BXP Integration Scout Configuration
+# Commercial-grade configuration for autonomous discovery and assessment
+
+scout:
+  name: "bxp-integration-scout"
+  version: "1.0.0"
+  description: "Read-only discovery agent for BXP integration opportunities"
+  mode: "read-only"  # read-only | assisted-pr
+  max_discoveries_per_run: 50
+  max_candidates_per_report: 20
+  min_score_threshold: 0.5
+
+github:
+  search_queries:
+    - "air quality api"
+    - "air quality data"
+    - "atmospheric data"
+    - "pm25 sensor"
+    - "openaq"
+    - "airnow api"
+    - "environmental monitoring api"
+    - "weather air quality"
+    - "pollution data api"
+    - "aqicn"
+  sort: "updated"
+  order: "desc"
+  per_page: 10
+  rate_limit_buffer: 10  # requests to keep in reserve
+  timeout_seconds: 30
+
+scoring:
+  weights:
+    air_quality_keywords: 0.15
+    api_data_keywords: 0.05
+    stars: 0.10
+    forks: 0.05
+    open_license: 0.10
+    recent_activity: 0.10
+  open_licenses:
+    - "mit"
+    - "apache-2.0"
+    - "bsd-3-clause"
+    - "bsd-2-clause"
+    - "isc"
+  recent_activity_days: 90
+
+state:
+  enabled: true
+  path: ".bxp/scout/state/state.json"
+  prevent_duplicates: true
+
+output:
+  candidates_path: ".bxp/scout/state/candidates.json"
+  report_path: ".bxp/scout/reports/weekly-report.md"
+  adapters_path: ".bxp/scout/adapters"
+  log_path: ".bxp/scout/logs/scout.log"
+
+github_token_env: "GITHUB_TOKEN"
+
+scheduling:
+  cron: "0 2 * * *"  # Daily at 02:00 UTC
+  timezone: "UTC"
+
+adapters:
+  enabled: true
+  templates:
+    - "openaq_to_bxp"
+    - "bxp_to_openaq"
+    - "generic_api_to_bxp"
+
+human_review_required: true
+auto_pr_enabled: false

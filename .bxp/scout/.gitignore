@@ -1,0 +1,30 @@
+# BXP Integration Scout — operational files
+# Committed to bxp-spec; external repos never modified.
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Package build artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# State
+/bxp/scout/state/*.json
+!/bxp/scout/state/.gitkeep
+
+# Reports
+/bxp/scout/reports/*.md
+!/bxp/scout/reports/.gitkeep
+
+# Adapters (generated drafts)
+/bxp/scout/adapters/*/
+!/bxp/scout/adapters/.gitkeep
+
+# Logs
+/bxp/scout/logs/*.log
+!/bxp/scout/logs/.gitkeep

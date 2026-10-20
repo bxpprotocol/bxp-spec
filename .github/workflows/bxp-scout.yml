@@ -1,0 +1,51 @@
+name: BXP Integration Scout
+
+on:
+  # Autonomous weekly discovery — read-only, no external PRs
+  schedule:
+    - cron: "0 2 * * *"
+  push:
+    branches: [main]
+    paths:
+      - ".bxp/scout/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  scout-discovery:
+    name: BXP Integration Scout — weekly discovery
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r .bxp/scout/requirements.txt
+
+      - name: Run BXP Integration Scout (full pipeline)
+        run: python -m bxp_scout run --config .bxp/scout/config.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: .bxp/scout/src
+
+      - name: Commit scout state and report
+        run: |
+          git config user.email "bxp-scout@users.noreply.github.com"
+          git config user.name "BXP Scout"
+          git add .bxp/scout/state/ .bxp/scout/reports/ .bxp/scout/adapters/ .bxp/scout/logs/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(bxp-scout): weekly integration discovery report"
+            git push origin main
+          fi
