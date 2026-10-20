@@ -1,0 +1,82 @@
+name: BXP Autonomous Sentinel
+
+on:
+  # Runs every 6 hours autonomously — the "always on" agent.
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"
+
+jobs:
+  ingest-validate-conformance:
+    name: Sentinel — ingest, validate, conformance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r .bxp/requirements.txt
+          pip install -r reference-server/requirements.txt
+          pip install -r requirements-dev.txt
+          cd sdk/typescript && npm ci
+
+      - name: Run BXP Autonomous Sentinel
+        run: python .bxp/guardian.py
+        env:
+          BXP_SENTINEL_TOKEN: ${{ secrets.BXP_SENTINEL_TOKEN }}
+
+      - name: Upload beacon report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bxp-beacon
+          path: .bxp/beacon.json
+          retention-days: 30
+
+  conformance-report:
+    name: Conformance vectors report
+    needs: ingest-validate-conformance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install TypeScript SDK
+        run: cd sdk/typescript && npm ci
+
+      - name: Python conformance vectors
+        run: python conformance/verify_python.py
+
+      - name: TypeScript conformance vectors
+        run: node conformance/verify_typescript.mjs
