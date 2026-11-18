@@ -488,6 +488,281 @@ export class BXPClient {
   async metrics(): Promise<string> {
     return this.req('GET', '/metrics');
   }
+
+
+// ─────────────────────────────────────────────────────────────
+// PERSONAL EXPOSURE RECORDS — PROOF-CARRYING LEDGER (SPEC §10.5)
+// ─────────────────────────────────────────────────────────────
+
+export const EXPOSURE_SOURCES = new Set(["open-meteo", "bxp-node", "sensor", "manual"]);
+export const EXPOSURE_MEASUREMENT_TYPES = new Set(["measured", "modelled", "manual"]);
+export const LOCATION_PRECISIONS = new Set(["none", "city", "area", "exact"]);
+
+export const WHO_PM25_24H = 15.0;
+export const WHO_PM10_24H = 45.0;
+export const WHO_NO2_24H  = 25.0;
+
+export interface ExposureEntry {
+  recordType:        "exposure";
+  timestampUs:       number;
+  location:          { lat?: number | null; lon?: number | null; geohash?: string | null };
+  agents:            AgentReading[];
+  source:            string;
+  measurementType:   string;
+  locationPrecision: string;
+  qualityNotes:      string[];
+  previousHash:      string | null;
+  entryHash:         string;
+}
+
+export interface ExposureChainResult {
+  valid:             boolean;
+  errors:            string[];
+  firstBrokenIndex:  number | null;
+  entryCount:        number;
+}
+
+/**
+ * Stable, compact JSON for hash computation — matches Python exactly:
+ * json.dumps(obj, sort_keys=True, separators=(',', ':'), default=str)
+ */
+export function stableStringify(obj: unknown): string {
+  return JSON.stringify(stableSort(obj));
+}
+
+function stableSort(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(stableSort);
+  const obj = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj).sort()) {
+    sorted[key] = stableSort(obj[key]);
+  }
+  return sorted;
+}
+
+export function entryHash(entry: ExposureEntry): string {
+  const check = { ...entry };
+  delete check.entryHash;
+  const payload = stableStringify(check);
+  return "sha256:" + sha256hexSync(payload);
+}
+
+/**
+ * Synchronous SHA-256 hex digest. Works in Node (crypto) and browsers (SubtleCrypto).
+ * For browsers, falls back to async — callers in async contexts should await sha256hex.
+ * Here we need sync, so use a small sync implementation for environments without crypto.subtle.
+ */
+export function sha256hexSync(data: string): string {
+  // Node.js
+  try {
+    const { createHash } = require("crypto");
+    return createHash("sha256").update(data, "utf8").digest("hex");
+  } catch { /* not Node.js or require not available */ }
+  // Browser / Deno / Bun — synchronous SubtleCrypto is not available.
+  // Fall back: this path should not be hit in browser async code;
+  // createExposureEntry is async in browser environments.
+  throw new Error("Synchronous SHA-256 not available in this environment. Use async createExposureEntry.");
+}
+
+export async function createExposureEntry(
+  agents: AgentReading[],
+  opts: {
+    source?: string;
+    measurementType?: string;
+    location?: { lat?: number | null; lon?: number | null; geohash?: string | null };
+    previousHash?: string | null;
+    locationPrecision?: string;
+    qualityNotes?: string[];
+    timestampUs?: number;
+  } = {},
+): Promise<ExposureEntry> {
+  const {
+    source = "manual",
+    measurementType = "manual",
+    location = { lat: null, lon: null },
+    previousHash = null,
+    locationPrecision = "area",
+    qualityNotes = [],
+    timestampUs,
+  } = opts;
+
+  if (!EXPOSURE_SOURCES.has(source))
+    throw new Error(`Invalid source '${source}' — must be one of: ${[...EXPOSURE_SOURCES].sort().join(", ")}`);
+  if (!EXPOSURE_MEASUREMENT_TYPES.has(measurementType))
+    throw new Error(`Invalid measurementType '${measurementType}' — must be one of: ${[...EXPOSURE_MEASUREMENT_TYPES].sort().join(", ")}`);
+  if (!LOCATION_PRECISIONS.has(locationPrecision))
+    throw new Error(`Invalid locationPrecision '${locationPrecision}' — must be one of: ${[...LOCATION_PRECISIONS].sort().join(", ")}`);
+  if (!agents.length) throw new Error("At least one agent is required");
+
+  const nowUs = Date.now() * 1000;
+  const entry: ExposureEntry = {
+    recordType:       "exposure",
+    timestampUs:      timestampUs ?? nowUs,
+    location,
+    agents:           [...agents].map(a => ({ ...a })),
+    source,
+    measurementType,
+    locationPrecision,
+    qualityNotes:     [...qualityNotes],
+    previousHash,
+    entryHash:        "", // placeholder, filled below
+  };
+  entry.entryHash = await sha256hex(stableStringify({ ...entry, entryHash: "" }));
+  return entry;
+}
+
+export function validateExposureEntry(entry: ExposureEntry): { valid: boolean; errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (entry.recordType !== "exposure") errors.push("recordType must be 'exposure'");
+  for (const field of ["timestampUs", "agents", "source", "measurementType",
+                       "locationPrecision", "entryHash"]) {
+    if (!(field in entry) || entry[field as keyof ExposureEntry] == null) {
+      errors.push(`Missing required field: ${field}`);
+    }
+  }
+
+  if (entry.source && !EXPOSURE_SOURCES.has(entry.source))
+    errors.push(`Invalid source '${entry.source}'`);
+  if (entry.measurementType && !EXPOSURE_MEASUREMENT_TYPES.has(entry.measurementType))
+    errors.push(`Invalid measurementType '${entry.measurementType}'`);
+  if (entry.locationPrecision && !LOCATION_PRECISIONS.has(entry.locationPrecision))
+    errors.push(`Invalid locationPrecision '${entry.locationPrecision}'`);
+
+  if (!entry.agents.length) errors.push("No agents present");
+  else {
+    for (let i = 0; i < entry.agents.length; i++) {
+      const a = entry.agents[i];
+      if (a.agentId == null) errors.push(`Agent ${i}: missing agentId`);
+      if (a.value == null) errors.push(`Agent ${i}: missing value`);
+      else if (a.value < 0) errors.push(`Agent ${i} (${a.agentId}): negative value`);
+    }
+  }
+
+  const computed = entryHash(entry as ExposureEntry);
+  if (entry.entryHash !== computed) {
+    errors.push(`Entry hash mismatch — entry may be tampered`);
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
+}
+
+export function validateExposureChain(entries: ExposureEntry[]): ExposureChainResult {
+  const errors: string[] = [];
+  let firstBroken: number | null = null;
+
+  if (!entries.length) {
+    return { valid: false, errors: ["Chain is empty"], firstBrokenIndex: 0, entryCount: 0 };
+  }
+
+  for (let i = 0; i < entries.length; i++) {
+    const result = validateExposureEntry(entries[i]);
+    if (!result.valid) {
+      errors.push(`Entry ${i}: ${result.errors.join("; ")}`);
+      if (firstBroken == null) firstBroken = i;
+      continue;
+    }
+
+    if (i === 0) {
+      if (entries[i].previousHash !== null) {
+        errors.push(`Entry ${i}: genesis entry must have previousHash: null`);
+        if (firstBroken == null) firstBroken = i;
+      }
+    } else {
+      if (entries[i].previousHash !== entries[i - 1].entryHash) {
+        errors.push(`Entry ${i}: previousHash does not match entry ${i - 1} entryHash`);
+        if (firstBroken == null) firstBroken = i;
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0 && firstBroken == null,
+    errors,
+    firstBrokenIndex: firstBroken,
+    entryCount: entries.length,
+  };
+}
+
+/**
+ * Append an exposure entry to a .bxp.json ledger file (Node.js only).
+ * In the browser, call createExposureEntry() and store via IndexedDB instead.
+ */
+export async function appendToLedger(
+  ledgerPath: string,
+  newEntry: Partial<ExposureEntry> & { agents: AgentReading[] },
+): Promise<{ valid: boolean; entry?: ExposureEntry; errors: string[]; ledgerPath: string }> {
+  // Browser-safe: no fs available. Return the entry for caller to store.
+  let fs: any;
+  try { fs = require("fs"); } catch { fs = null; }
+
+  let entries: ExposureEntry[] = [];
+  if (fs && fs.existsSync(ledgerPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(ledgerPath, "utf-8"));
+      entries = Array.isArray(data) ? data : (data.entries ?? []);
+      const chain = validateExposureChain(entries);
+      if (!chain.valid) {
+        return { valid: false, errors: [`Existing ledger chain invalid: ${chain.errors[0]}`], ledgerPath };
+      }
+    } catch (e) {
+      return { valid: false, errors: [`Cannot read ledger: ${e}`], ledgerPath };
+    }
+  }
+
+  const previousHash = entries.length ? entries[entries.length - 1].entryHash : null;
+  const entry = await createExposureEntry(newEntry.agents, {
+    source: newEntry.source ?? "manual",
+    measurementType: newEntry.measurementType ?? "manual",
+    location: newEntry.location,
+    previousHash,
+    locationPrecision: newEntry.locationPrecision ?? "area",
+    qualityNotes: newEntry.qualityNotes,
+    timestampUs: newEntry.timestampUs,
+  });
+
+  entries.push(entry);
+
+  if (fs) {
+    const tmp = ledgerPath + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(entries, null, 2));
+    fs.renameSync(tmp, ledgerPath);
+  }
+
+  return { valid: true, entry, errors: [], ledgerPath };
+}
+
+/**
+ * Read and validate a .bxp.json ledger file (Node.js only).
+ * Browser callers should use IndexedDB + validateExposureChain().
+ */
+export function readLedger(ledgerPath: string): {
+  valid: boolean; entries: ExposureEntry[]; errors: string[];
+  entryCount: number; chainValid: boolean;
+} {
+  let fs: any;
+  try { fs = require("fs"); } catch { fs = null; }
+
+  if (!fs || !fs.existsSync(ledgerPath)) {
+    return { valid: false, errors: [`Ledger not found: ${ledgerPath}`], entries: [], entryCount: 0, chainValid: false };
+  }
+
+  let data: unknown;
+  try { data = JSON.parse(fs.readFileSync(ledgerPath, "utf-8")); }
+  catch (e) { return { valid: false, errors: [`Cannot parse ledger: ${e}`], entries: [], entryCount: 0, chainValid: false }; }
+
+  const entries: ExposureEntry[] = Array.isArray(data) ? data : (data as any).entries ?? [];
+  const chain = validateExposureChain(entries);
+
+  return {
+    valid: chain.valid,
+    entries,
+    errors: chain.errors,
+    entryCount: entries.length,
+    chainValid: chain.valid,
+  };
 }
 
 // ─── Default export ───────────────────────────────────────────

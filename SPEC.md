@@ -1118,6 +1118,88 @@ pending review.
 
 ---
 
+### 10.5 Personal Exposure Records — Proof-Carrying Ledger
+
+A personal exposure record is a `.bxp.json` entry that a person
+accumulates on their own device. Unlike node-side readings (§8), which
+are stored and served by a BXP node, personal exposure records live in a
+single append-only ledger file controlled by the individual. Each entry
+carries its own provenance — source, measurement type, location
+precision, and data-quality notes — so the record remains interpretable
+years later, outside any health system, employer, device brand, or
+country's platform.
+
+#### 10.5.1 Record Schema
+
+A personal exposure record has `recordType: "exposure"` and carries the
+following fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `recordType` | string | YES | Fixed value `"exposure"` |
+| `timestampUs` | integer | YES | Unix epoch microseconds UTC |
+| `location` | object | YES | `{ lat, lon, geohash? }` — lat/lon are coarsened per the user's privacy setting (§9.1) |
+| `agents` | array | YES | At least one `{ agentId, value, unit }` entry |
+| `source` | enum | YES | `"open-meteo"` \| `"bxp-node"` \| `"sensor"` \| `"manual"` |
+| `measurementType` | enum | YES | `"measured"` \| `"modelled"` \| `"manual"` |
+| `locationPrecision` | enum | YES | `"none"` \| `"city"` \| `"area"` \| `"exact"` |
+| `qualityNotes` | array[string] | NO | Human-readable data-quality annotations |
+| `previousHash` | string | NO | `sha256:`-prefixed hash of the prior entry; `null` for genesis |
+| `entryHash` | string | YES | `sha256:`-prefixed hash of this entry (excluding `entryHash` itself) |
+
+Example entry:
+
+```json
+{
+  "recordType": "exposure",
+  "timestampUs": 1710000000000000,
+  "location": { "lat": 5.6037, "lon": -0.1870, "geohash": "s1v0gx4" },
+  "agents": [
+    { "agentId": "PM2_5", "value": 47.2, "unit": "ug/m3" },
+    { "agentId": "NO2",   "value": 18.3, "unit": "ug/m3" }
+  ],
+  "source": "open-meteo",
+  "measurementType": "modelled",
+  "locationPrecision": "area",
+  "qualityNotes": ["WHO 24h PM2.5 guideline (15 µg/m³) exceeded"],
+  "previousHash": "sha256:a1b2c3d4...",
+  "entryHash": "sha256:e5f6g7h8..."
+}
+```
+
+#### 10.5.2 Hash Chain
+
+Entries form an append-only chain on the user's device:
+
+- `entryHash = SHA-256(canonicalJSON(entry without the entryHash field))`
+- `previousHash` = `entryHash` of the immediately preceding entry; `null` for the genesis entry
+- The chain is verified client-side: recompute each `entryHash` and confirm `previousHash` links match
+
+This makes the ledger tamper-evident without any blockchain, tokens, or network. The user's single `.bxp.json` file is the complete record.
+
+#### 10.5.3 Privacy Floor
+
+Location is coarsened before storage, never after:
+
+| Setting | Coarsening | Approximate resolution |
+|---------|-----------|----------------------|
+| `none` | Location not stored | — |
+| `city` | Round to 1 decimal (~10 km) | City |
+| `area` | Round to 2 decimals (~1 km) | Neighborhood |
+| `exact` | Full precision retained | Exact point |
+
+The privacy setting is user-controlled and can be changed at any time. Changing it does not retroactively coarsen already-stored entries — users should re-export if they want tighter privacy on existing data.
+
+#### 10.5.4 Not a Medical Device
+
+Personal exposure records are informational only. WHO thresholds (PM2.5 ≤15, PM10 ≤45, NO2 ≤25 µg/m³) are reference bands, not health advice. BXP-HRI is experimental and must not be used for medical decisions (§13). The ledger does not diagnose, treat, or prevent any condition.
+
+#### 10.5.5 Portability
+
+The ledger is a single `.bxp.json` file. A user can export it, move it to another device or app, and re-import it. Hash chain validation on import confirms the file was not altered in transit. Any BXP-compliant application can read the ledger.
+
+---
+
 ## 11. Implementation Guide
 
 ### 11.1 Implementing a BXP Data Source

@@ -1075,3 +1075,271 @@ class AsyncBXPClient:
     async def get_city(self, city: str) -> Optional[dict]:
         resp = await self._request("GET", f"/bxp/v2/city/{city}")
         return resp if "bxp_hri" in resp else None
+
+
+# ─────────────────────────────────────────────────────────────
+# PERSONAL EXPOSURE RECORDS — PROOF-CARRYING LEDGER (SPEC §10.5)
+# ─────────────────────────────────────────────────────────────
+
+EXPOSURE_SOURCES = {"open-meteo", "bxp-node", "sensor", "manual"}
+EXPOSURE_MEASUREMENT_TYPES = {"measured", "modelled", "manual"}
+LOCATION_PRECISIONS = {"none", "city", "area", "exact"}
+
+WHO_PM25_24H = 15.0   # WHO 2021 24-hour guideline, µg/m³
+WHO_PM10_24H = 45.0
+WHO_NO2_24H  = 25.0
+
+
+def _canonical_json(obj) -> str:
+    """Stable, compact JSON for hash computation — matches TypeScript exactly."""
+    return json.dumps(obj, sort_keys=True, separators=(',', ':'), default=str)
+
+
+def _entry_hash(entry: dict) -> str:
+    """SHA-256 of the entry with entryHash removed, compact sorted serialization."""
+    check = {k: v for k, v in entry.items() if k != "entryHash"}
+    payload = _canonical_json(check)
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def createExposureEntry(
+    agents: list,
+    source: str = "manual",
+    measurementType: str = "manual",
+    location: Optional[dict] = None,
+    previousHash: Optional[str] = None,
+    locationPrecision: str = "area",
+    qualityNotes: Optional[list] = None,
+    timestampUs: Optional[int] = None,
+) -> dict:
+    """
+    Build a single personal exposure record (recordType: "exposure").
+    Computes entryHash over the entry excluding itself, per SPEC §10.5.2.
+
+    Args:
+        agents: List of {"agentId": str, "value": float, "unit": str}
+        source: "open-meteo" | "bxp-node" | "sensor" | "manual"
+        measurementType: "measured" | "modelled" | "manual"
+        location: {"lat": float, "lon": float, "geohash?": str}
+        previousHash: sha256-prefixed hash of prior entry, or None for genesis
+        locationPrecision: "none" | "city" | "area" | "exact"
+        qualityNotes: optional list of data-quality annotations
+        timestampUs: Unix epoch microseconds UTC (now if not given)
+
+    Returns:
+        Complete exposure entry dict including entryHash
+    """
+    if source not in EXPOSURE_SOURCES:
+        raise ValueError(f"Invalid source '{source}' — must be one of: {sorted(EXPOSURE_SOURCES)}")
+    if measurementType not in EXPOSURE_MEASUREMENT_TYPES:
+        raise ValueError(f"Invalid measurementType '{measurementType}' — must be one of: {sorted(EXPOSURE_MEASUREMENT_TYPES)}")
+    if locationPrecision not in LOCATION_PRECISIONS:
+        raise ValueError(f"Invalid locationPrecision '{locationPrecision}' — must be one of: {sorted(LOCATION_PRECISIONS)}")
+    if not agents:
+        raise ValueError("At least one agent is required")
+
+    now_us = int(time.time() * 1_000_000)
+    entry = {
+        "recordType":       "exposure",
+        "timestampUs":      timestampUs if timestampUs is not None else now_us,
+        "location":         location if location else {"lat": None, "lon": None},
+        "agents":           [dict(a) for a in agents],
+        "source":           source,
+        "measurementType":  measurementType,
+        "locationPrecision":locationPrecision,
+        "qualityNotes":     qualityNotes if qualityNotes else [],
+        "previousHash":     previousHash,
+    }
+    entry["entryHash"] = _entry_hash(entry)
+    return entry
+
+
+def validateExposureEntry(entry: dict) -> dict:
+    """
+    Validate a single exposure entry's structure and self-hash.
+
+    Returns dict with: valid, errors, warnings
+    """
+    errors = []
+    warnings = []
+
+    if entry.get("recordType") != "exposure":
+        errors.append("recordType must be 'exposure'")
+    for field in ["timestampUs", "agents", "source", "measurementType",
+                  "locationPrecision", "entryHash"]:
+        if field not in entry or entry[field] is None:
+            errors.append(f"Missing required field: {field}")
+
+    src = entry.get("source")
+    if src and src not in EXPOSURE_SOURCES:
+        errors.append(f"Invalid source '{src}'")
+    mt = entry.get("measurementType")
+    if mt and mt not in EXPOSURE_MEASUREMENT_TYPES:
+        errors.append(f"Invalid measurementType '{mt}'")
+    lp = entry.get("locationPrecision")
+    if lp and lp not in LOCATION_PRECISIONS:
+        errors.append(f"Invalid locationPrecision '{lp}'")
+
+    agents = entry.get("agents", [])
+    if not agents:
+        errors.append("No agents present")
+    else:
+        for i, a in enumerate(agents):
+            if "agentId" not in a:
+                errors.append(f"Agent {i}: missing agentId")
+            if "value" not in a:
+                errors.append(f"Agent {i}: missing value")
+            elif float(a.get("value", 0)) < 0:
+                errors.append(f"Agent {i} ({a.get('agentId')}): negative value")
+
+    claimed = entry.get("entryHash", "")
+    computed = _entry_hash(entry)
+    if claimed and claimed != computed:
+        errors.append(f"Entry hash mismatch — entry may be tampered (claimed {claimed[:16]}... computed {computed[:16]}...)")
+
+    valid = len(errors) == 0
+    summary = f"VALID exposure entry — {len(agents)} agent(s)" if valid else f"INVALID — {len(errors)} error(s)"
+    return {"valid": valid, "errors": errors, "warnings": warnings, "summary": summary}
+
+
+def validateExposureChain(entries: list) -> dict:
+    """
+    Validate an entire append-only exposure chain.
+
+    Checks each entry's self-hash and that previousHash links match
+    the preceding entry's entryHash. Genesis entry must have
+    previousHash: null.
+
+    Returns dict with: valid, errors, firstBrokenIndex, entryCount
+    """
+    errors = []
+    first_broken = None
+
+    if not entries:
+        return {"valid": False, "errors": ["Chain is empty"],
+                "firstBrokenIndex": 0, "entryCount": 0}
+
+    for i, entry in enumerate(entries):
+        result = validateExposureEntry(entry)
+        if not result["valid"]:
+            errors.append(f"Entry {i}: " + "; ".join(result["errors"]))
+            if first_broken is None:
+                first_broken = i
+            continue
+
+        # Chain linkage check
+        if i == 0:
+            if entry.get("previousHash") is not None:
+                errors.append(f"Entry {i}: genesis entry must have previousHash: null")
+                if first_broken is None:
+                    first_broken = i
+        else:
+            prev_hash = entries[i - 1].get("entryHash")
+            if entry.get("previousHash") != prev_hash:
+                errors.append(
+                    f"Entry {i}: previousHash does not match entry {i-1} entryHash"
+                )
+                if first_broken is None:
+                    first_broken = i
+
+    valid = len(errors) == 0 and first_broken is None
+    return {
+        "valid": valid,
+        "errors": errors,
+        "firstBrokenIndex": first_broken,
+        "entryCount": len(entries),
+    }
+
+
+def appendToLedger(
+    ledgerPath: str,
+    newEntry: dict,
+) -> dict:
+    """
+    Append a new exposure entry to an existing .bxp.json ledger file.
+    Reads the current ledger, validates its chain, appends the new entry
+    (with previousHash set to the last entry's entryHash), and writes
+    back atomically.
+
+    Args:
+        ledgerPath: Path to the .bxp.json ledger file
+        newEntry: Exposure entry dict (without entryHash; will be computed)
+
+    Returns:
+        dict with: valid, entry, ledgerPath, errors
+    """
+    from pathlib import Path
+
+    path = Path(ledgerPath)
+    entries = []
+
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            entries = data if isinstance(data, list) else data.get("entries", [])
+        except (json.JSONDecodeError, OSError) as e:
+            return {"valid": False, "errors": [f"Cannot read ledger: {e}"],
+                    "entry": None, "ledgerPath": str(path)}
+
+        # Validate existing chain before appending
+        chain = validateExposureChain(entries)
+        if not chain["valid"]:
+            return {"valid": False, "errors": [f"Existing ledger chain invalid: {chain['errors'][0]}"],
+                    "entry": None, "ledgerPath": str(path)}
+
+    previousHash = entries[-1]["entryHash"] if entries else None
+
+    entry = createExposureEntry(
+        agents=newEntry.get("agents", []),
+        source=newEntry.get("source", "manual"),
+        measurementType=newEntry.get("measurementType", "manual"),
+        location=newEntry.get("location"),
+        previousHash=previousHash,
+        locationPrecision=newEntry.get("locationPrecision", "area"),
+        qualityNotes=newEntry.get("qualityNotes"),
+        timestampUs=newEntry.get("timestampUs"),
+    )
+
+    entries.append(entry)
+
+    # Write atomically: write to temp, then replace
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(entries, indent=2, default=str),
+        encoding="utf-8"
+    )
+    tmp_path.replace(path)
+
+    return {"valid": True, "entry": entry, "errors": [],
+            "ledgerPath": str(path)}
+
+
+def readLedger(ledgerPath: str) -> dict:
+    """
+    Read and validate a .bxp.json ledger file.
+
+    Returns dict with: valid, entries, errors, entryCount, chainValid
+    """
+    from pathlib import Path
+
+    path = Path(ledgerPath)
+    if not path.exists():
+        return {"valid": False, "errors": [f"Ledger not found: {ledgerPath}"],
+                "entries": [], "entryCount": 0, "chainValid": False}
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        return {"valid": False, "errors": [f"Cannot parse ledger: {e}"],
+                "entries": [], "entryCount": 0, "chainValid": False}
+
+    entries = data if isinstance(data, list) else data.get("entries", [])
+    chain = validateExposureChain(entries)
+
+    return {
+        "valid": chain["valid"],
+        "entries": entries,
+        "errors": chain["errors"],
+        "entryCount": len(entries),
+        "chainValid": chain["valid"],
+    }

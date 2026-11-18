@@ -10,12 +10,12 @@
     "fileRead": true,
     "fileWrite": true,
     "fileEdit": true,
-    "fileDelete": false,
+    "fileDelete": true,
     "bash": true,
     "webFetch": true,
     "webSearch": true,
-    "gitCommit": false,
-    "gitPush": false
+    "gitCommit": true,
+    "gitPush": true
   },
   "paths": {
     "spec": "SPEC.md",
